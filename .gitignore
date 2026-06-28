@@ -1,0 +1,29 @@
+# Build output
+OBJ/
+Listings/
+Objects/
+USER/BIN/
+
+# Compiler and linker artifacts
+*.crf
+*.d
+*.o
+*.axf
+*.bin
+*.hex
+*.map
+*.lst
+*.dep
+*.lnp
+*.build_log.htm
+
+# Keil user-specific files
+*.uvoptx
+*.uvguix.*
+
+# VS Code local settings
+.vscode/
+
+# OS junk
+Thumbs.db
+Desktop.ini
