@@ -522,6 +522,18 @@ void mpu9250SetGyroZSelfTest(bool enabled)
   i2cdevWriteBit(I2Cx, devAddr, MPU9250_RA_GYRO_CONFIG, MPU9250_GCONFIG_ZG_ST_BIT, enabled);
 }
 
+/** Set gyroscope FCHOICE_B value.
+ * @param mode New gyroscope FCHOICE_B value£¬0x00open, 0x01closed
+ * @see MPU9250_RA_GYRO_CONFIG
+ * @see MPU9250_GCONFIG_FCHOICE_B_BIT
+ * @see MPU9250_GCONFIG_FCHOICE_B_LENGTH
+ */
+void mpu9250SetGyroFchoiceb(uint8_t mode)
+{
+  i2cdevWriteBits(I2Cx, devAddr, MPU9250_RA_GYRO_CONFIG, MPU9250_GCONFIG_FCHOICE_B_BIT,
+      MPU9250_GCONFIG_FCHOICE_B_LENGTH, mode);
+}
+
 // ACCEL_CONFIG register
 
 /** Get self-test enabled setting for accelerometer X axis.
@@ -659,6 +671,12 @@ void mpu9250SetAccelDLPF(uint8_t range)
 {
   i2cdevWriteBits(I2Cx, devAddr, MPU9250_RA_ACCEL_CONFIG_2, MPU9250_ACONFIG2_DLPF_BIT,
       MPU9250_ACONFIG2_DLPF_LENGTH, range);
+}
+
+void mpu9250SetAccelFchoiceb(uint8_t mode)
+{
+  i2cdevWriteBits(I2Cx, devAddr, MPU9250_RA_ACCEL_CONFIG_2, MPU9250_ACONFIG2_FCHOICE_B_BIT,
+      MPU9250_ACONFIG2_FCHOICE_B_LENGTH, mode);
 }
 
 /** Get the high-pass filter configuration.

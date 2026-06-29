@@ -172,11 +172,13 @@ void sensorsDeviceInit(void)
 	mpu9250SetI2CBypassEnabled(true);	// 旁路模式，磁力计和气压连接到主IIC	
 	mpu9250SetFullScaleGyroRange(SENSORS_GYRO_FS_CFG);	// 设置陀螺量程	
 	mpu9250SetFullScaleAccelRange(SENSORS_ACCEL_FS_CFG);// 设置加速计量程	
-	mpu9250SetAccelDLPF(MPU9250_ACCEL_DLPF_BW_41);		// 设置加速计数字低通滤波
-
-	mpu9250SetRate(0);// 设置采样速率: 1000 / (1 + 0) = 1000Hz
-	mpu9250SetDLPFMode(MPU9250_DLPF_BW_98);// 设置陀螺数字低通滤波
 	
+	mpu9250SetAccelFchoiceb(MPU9250_ACCEL_FCHOICE_B_DLPF); // 选择加速度计 DLPF 路径
+	mpu9250SetAccelDLPF(MPU9250_ACCEL_DLPF_CFG_3);         // A_DLPF_CFG=3，约 44.8Hz
+	mpu9250SetGyroFchoiceb(MPU9250_GYRO_FCHOICE_B_DLPF);   // 选择陀螺仪 DLPF 路径
+	mpu9250SetDLPFMode(MPU9250_DLPF_BW_92);                // DLPF_CFG=2，陀螺仪约 92Hz
+	mpu9250SetRate(0);// 设置采样速率: 1000 / (1 + 0) = 1000Hz
+
 	for (u8 i = 0; i < 3; i++)// 初始化加速计和陀螺二阶低通滤波
 	{
 		lpf2pInit(&gyroLpf[i], 1000, GYRO_LPF_CUTOFF_FREQ);
