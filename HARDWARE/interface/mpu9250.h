@@ -275,6 +275,9 @@
 #define MPU9250_I2C_SLV_LEN_BIT     3
 #define MPU9250_I2C_SLV_LEN_LENGTH  4
 
+#define MPU9250_I2C_SLV_ADDR_READ    (1 << 7)   // I2C_SLVx_ADDR[7], 1 = read
+#define MPU9250_I2C_SLV_ADDR_WRITE  (0 << 7)  // bit7 = 0, write
+
 #define MPU9250_I2C_SLV4_RW_BIT         7
 #define MPU9250_I2C_SLV4_ADDR_BIT       6
 #define MPU9250_I2C_SLV4_ADDR_LENGTH    7
@@ -292,6 +295,23 @@
 #define MPU9250_MST_I2C_SLV2_NACK_BIT   2
 #define MPU9250_MST_I2C_SLV1_NACK_BIT   1
 #define MPU9250_MST_I2C_SLV0_NACK_BIT   0
+
+#define I2C_MST_CLK_348_kHz 0
+#define I2C_MST_CLK_333_kHz 1
+#define I2C_MST_CLK_320_kHz 2  
+#define I2C_MST_CLK_308_kHz 3
+#define I2C_MST_CLK_296_kHz 4
+#define I2C_MST_CLK_286_kHz 5
+#define I2C_MST_CLK_276_kHz 6
+#define I2C_MST_CLK_267_kHz 7
+#define I2C_MST_CLK_258_kHz 8
+#define I2C_MST_CLK_500_kHz 9
+#define I2C_MST_CLK_471_kHz 10
+#define I2C_MST_CLK_444_kHz 11
+#define I2C_MST_CLK_421_kHz 12
+#define I2C_MST_CLK_400_kHz 13
+#define I2C_MST_CLK_381_kHz 14
+#define I2C_MST_CLK_364_kHz 15
 
 #define MPU9250_INTCFG_INT_LEVEL_BIT        7
 #define MPU9250_INTCFG_INT_OPEN_BIT         6

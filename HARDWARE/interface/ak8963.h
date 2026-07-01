@@ -76,7 +76,7 @@
 
 #define MAG_GAUSS_PER_LSB		(float)(666.7f)
 
-void ak8963Init(I2C_Dev *i2cPort);
+void ak8963Init(I2C_Dev *i2cPort, uint8_t address);
 bool ak8963TestConnection(void);
 bool ak8963SelfTest(void);	/*AK8963вт╪Л*/
 

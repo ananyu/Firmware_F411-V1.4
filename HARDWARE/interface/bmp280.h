@@ -47,8 +47,15 @@
 #define BMP280_OVERSAMP_8X				(0x04)
 #define BMP280_OVERSAMP_16X				(0x05)
 
+#define BMP280_CONFIG_F0		(0x0<<2)		/* no filter */
+#define BMP280_CONFIG_F2		(0x1<<2)
+#define BMP280_CONFIG_F4		(0x2<<2)
+#define BMP280_CONFIG_F8		(0x3<<2)
+#define BMP280_CONFIG_F16		(0x4<<2)
 
-bool bmp280Init(I2C_Dev *i2cPort);
+
+
+bool bmp280Init(I2C_Dev *i2cPort, u8 address);
 void bmp280GetData(float* pressure, float* temperature, float* asl);
 
 u32 bmp280CompensateT(s32 adcT);
@@ -57,5 +64,4 @@ void pressureFilter(float* in, float* out);/*限幅平均滤波法*/
 float bmp280PressureToAltitude(float* pressure/*, float* groundPressure, float* groundTemp*/);
 
 #endif
-
 

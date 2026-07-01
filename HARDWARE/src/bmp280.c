@@ -32,6 +32,7 @@ typedef struct
     u16 dig_T1;	/* calibration T1 data */
     s16 dig_T2; /* calibration T2 data */
     s16 dig_T3; /* calibration T3 data */
+
     u16 dig_P1;	/* calibration P1 data */
     s16 dig_P2; /* calibration P2 data */
     s16 dig_P3; /* calibration P3 data */
@@ -53,13 +54,13 @@ static s32 bmp280RawTemperature = 0;
 
 static void bmp280GetPressure(void);
 
-bool bmp280Init(I2C_Dev *i2cPort)
+bool bmp280Init(I2C_Dev *i2cPort, u8 address)
 {	
     if (isInit)
         return true;
 
 	I2Cx = i2cPort;
-	devAddr = BMP280_I2C_ADDR;
+	devAddr = address;
 
     delay_xms(50);
 	
@@ -73,7 +74,7 @@ bool bmp280Init(I2C_Dev *i2cPort)
     /* 读取校准数据 */
     i2cdevRead(I2Cx, devAddr, BMP280_TEMPERATURE_CALIB_DIG_T1_LSB_REG, 24, (u8 *)&bmp280Cal);	
 	i2cdevWriteByte(I2Cx, devAddr, BMP280_CTRL_MEAS_REG, BMP280_MODE);
-	i2cdevWriteByte(I2Cx, devAddr, BMP280_CONFIG_REG, 5<<2);		/*配置IIR滤波*/
+	i2cdevWriteByte(I2Cx, devAddr, BMP280_CONFIG_REG, BMP280_CONFIG_F8);		/*配置IIR滤波*/
 	
 //	printf("BMP280 Calibrate Registor Are: \r\n");
 //	for(i=0;i<24;i++)
@@ -96,7 +97,7 @@ static void bmp280GetPressure(void)
 
 // Returns temperature in DegC, resolution is 0.01 DegC. Output value of "5123" equals 51.23 DegC
 // t_fine carries fine temperature as global value
-u32 bmp280CompensateT(s32 adcT)
+static u32 bmp280CompensateT(s32 adcT)
 {
     s32 var1, var2, T;
 
@@ -111,7 +112,7 @@ u32 bmp280CompensateT(s32 adcT)
 
 // Returns pressure in Pa as unsigned 32 bit integer in Q24.8 format (24 integer bits and 8 fractional bits).
 // Output value of "24674867" represents 24674867/256 = 96386.2 Pa = 963.862 hPa
-u32 bmp280CompensateP(s32 adcP)
+static u32 bmp280CompensateP(s32 adcP)
 {
     int64_t var1, var2, p;
     var1 = ((int64_t)bmp280Cal.t_fine) - 128000;
@@ -134,7 +135,7 @@ u32 bmp280CompensateP(s32 adcP)
 #define FILTER_A	0.1f
 
 /*限幅平均滤波法*/
-void pressureFilter(float* in, float* out)
+static void pressureFilter(float* in, float* out)
 {	
 	static u8 i=0;
 	static float filter_buf[FILTER_NUM]={0.0};

@@ -187,7 +187,7 @@ void sensorsDeviceInit(void)
 
 
 #ifdef SENSORS_ENABLE_MAG_AK8963
-	ak8963Init(SENSORS_I2CBUS);	//ak8963磁力计初始化
+	ak8963Init(SENSORS_I2CBUS, AK8963_DEFAULT_ADDRESS);	//ak8963磁力计初始化
 	if (ak8963TestConnection() == true)
 	{
 		isMagPresent = true;
@@ -200,7 +200,7 @@ void sensorsDeviceInit(void)
 	}
 #endif
 
-	if (bmp280Init(SENSORS_I2CBUS) == true)//BMP280初始化
+	if (bmp280Init(SENSORS_I2CBUS, BMP280_I2C_ADDR) == true)//BMP280初始化
 	{
 		isBaroPresent = true;
 		baroType = BMP280;
@@ -312,7 +312,7 @@ void sensorsInit(void)
 /*设置传感器从模式读取*/
 static void sensorsSetupSlaveRead(void)
 {
-	mpu9250SetSlave4MasterDelay(19); 	// 从机读取速率: 100Hz = (1000Hz / (1 + 9))
+	mpu9250SetSlave4MasterDelay(4); 	// 从机读取速率: 100Hz = (1000Hz / (1 + 9))
 
 	mpu9250SetI2CBypassEnabled(false);	//主机模式
 	mpu9250SetWaitForExternalSensorEnabled(true); 	
@@ -321,16 +321,16 @@ static void sensorsSetupSlaveRead(void)
 	mpu9250SetInterruptLatch(0); 		// 中断锁存模式(0=50us-pulse, 1=latch-until-int-cleared)
 	mpu9250SetInterruptLatchClear(1); 	// 中断清除模式(0=status-read-only, 1=any-register-read)
 	mpu9250SetSlaveReadWriteTransitionEnabled(false); // 关闭从机读写传输
-	mpu9250SetMasterClockSpeed(13); 	// 设置i2c速度400kHz
+	mpu9250SetMasterClockSpeed(I2C_MST_CLK_400_kHz); 	// 设置i2c速度400kHz
 
 #ifdef SENSORS_ENABLE_MAG_AK8963
 	if (isMagPresent)
 	{
 		// 设置MPU9250主机要读取的寄存器
-		mpu9250SetSlaveAddress(0, 0x80 | AK8963_ADDRESS_00); 	// 设置磁力计为0号从机
+		mpu9250SetSlaveAddress(0, MPU9250_I2C_SLV_ADDR_READ | AK8963_ADDRESS_00); 	// 设置磁力计为0号从机
 		mpu9250SetSlaveRegister(0, AK8963_RA_ST1); 				// 从机0需要读取的寄存器
 		mpu9250SetSlaveDataLength(0, SENSORS_MAG_BUFF_LEN); 	// 读取8个字节(ST1, x, y, z heading, ST2 (overflow check))
-		mpu9250SetSlaveDelayEnabled(0, true);
+		mpu9250SetSlaveDelayEnbuyabled(0, true);
 		mpu9250SetSlaveEnabled(0, true);
 	}
 #endif
@@ -339,13 +339,13 @@ static void sensorsSetupSlaveRead(void)
 	if (isBaroPresent && baroType == BMP280)
 	{
 		// 设置MPU9250主机要读取BMP280的寄存器
-		mpu9250SetSlaveAddress(1, 0x80 | BMP280_I2C_ADDR);		// 设置气压计状态寄存器为1号从机
+		mpu9250SetSlaveAddress(1, MPU9250_I2C_SLV_ADDR_READ | BMP280_I2C_ADDR);		// 设置气压计状态寄存器为1号从机
 		mpu9250SetSlaveRegister(1, BMP280_STAT_REG);			// 从机1需要读取的寄存器
 		mpu9250SetSlaveDataLength(1, SENSORS_BARO_STATUS_LEN);	// 读取1个字节
 		mpu9250SetSlaveDelayEnabled(1, true);
 		mpu9250SetSlaveEnabled(1, true);
 
-		mpu9250SetSlaveAddress(2, 0x80 | BMP280_I2C_ADDR);		// 设置气压计数据寄存器为2号从机
+		mpu9250SetSlaveAddress(2, MPU9250_I2C_SLV_ADDR_READ | BMP280_I2C_ADDR);		// 设置气压计数据寄存器为2号从机
 		mpu9250SetSlaveRegister(2, BMP280_PRESSURE_MSB_REG);	// 从机2需要读取的寄存器
 		mpu9250SetSlaveDataLength(2, SENSORS_BARO_DATA_LEN);	// 读取6个字节
 		mpu9250SetSlaveDelayEnabled(2, true);
@@ -354,13 +354,13 @@ static void sensorsSetupSlaveRead(void)
 	if (isBaroPresent && baroType == SPL06)
 	{
 		// 设置MPU9250主机要读取SPL06的寄存器
-		mpu9250SetSlaveAddress(1, 0x80 | SPL06_I2C_ADDR);		// 设置气压计状态寄存器为1号从机
+		mpu9250SetSlaveAddress(1, MPU9250_I2C_SLV_ADDR_READ | SPL06_I2C_ADDR);		// 设置气压计状态寄存器为1号从机
 		mpu9250SetSlaveRegister(1, SPL06_MODE_CFG_REG);			// 从机1需要读取的寄存器
 		mpu9250SetSlaveDataLength(1, SENSORS_BARO_STATUS_LEN);	// 读取1个字节
 		mpu9250SetSlaveDelayEnabled(1, true);
 		mpu9250SetSlaveEnabled(1, true);
 
-		mpu9250SetSlaveAddress(2, 0x80 | SPL06_I2C_ADDR);		// 设置气压计数据寄存器为2号从机
+		mpu9250SetSlaveAddress(2, MPU9250_I2C_SLV_ADDR_READ | SPL06_I2C_ADDR);		// 设置气压计数据寄存器为2号从机
 		mpu9250SetSlaveRegister(2, SPL06_PRESSURE_MSB_REG);		// 从机2需要读取的寄存器
 		mpu9250SetSlaveDataLength(2, SENSORS_BARO_DATA_LEN);	// 读取6个字节
 		mpu9250SetSlaveDelayEnabled(2, true);

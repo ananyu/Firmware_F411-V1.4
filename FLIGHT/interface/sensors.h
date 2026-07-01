@@ -15,7 +15,7 @@
  * All rights reserved
 ********************************************************************************/
 
-//#define SENSORS_ENABLE_MAG_AK8963
+#define SENSORS_ENABLE_MAG_AK8963
 //不带值的#define表示启用这个功能，注释掉表示不启用
 #define SENSORS_ENABLE_PRESSURE_BMP280	/*气压计使用bmp280*/
 #define SENSORS_I2CBUS	I2C1_DEV

@@ -23,13 +23,13 @@ static bool isInit;
 
 static bool ak8963EvaluateSelfTest(s16 min, s16 max, s16 value, char* string);
 
-void ak8963Init(I2C_Dev *i2cPort)
+void ak8963Init(I2C_Dev *i2cPort, u8 address)
 {
 	if (isInit)
 		return;
 
 	I2Cx = i2cPort;
-	devAddr = AK8963_ADDRESS_00;
+	devAddr = address;
 }
 
 /** Verify the I2C connection.
