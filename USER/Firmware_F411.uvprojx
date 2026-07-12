@@ -986,6 +986,11 @@
               <FilePath>..\FLIGHT\src\sensfusion6.c</FilePath>
             </File>
             <File>
+              <FileName>mag_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FLIGHT\src\mag_calibration.c</FilePath>
+            </File>
+            <File>
               <FileName>sensors.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FLIGHT\src\sensors.c</FilePath>
