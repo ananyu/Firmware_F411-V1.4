@@ -27,7 +27,7 @@
 ********************************************************************************/
 
 
-#define VERSION 13	/*13 表示V1.3*/
+#define VERSION 14	/*V1.4 config layout*/
 
 configParam_t configParam;
 
@@ -121,6 +121,14 @@ static configParam_t configParamDefault=
 	.trimP = 0.f,	/*pitch微调*/
 	.trimR = 0.f,	/*roll微调*/
 	.thrustBase=34000,	/*定高油门基础值*/
+	.magCalibration =
+	{
+		.offset = {0.0f, 0.0f, 0.0f},
+		.scale = {1.0f, 1.0f, 1.0f},
+		.fieldMagnitude = 0.0f,
+		.formatVersion = 1,
+		.valid = false,
+	},
 };
 
 static u32 lenth = 0;

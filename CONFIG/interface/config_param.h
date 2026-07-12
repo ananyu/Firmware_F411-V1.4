@@ -52,6 +52,15 @@ typedef struct
 	int16_t magZero[3];
 } magBias_t;
 
+typedef struct
+{
+	float offset[3];
+	float scale[3];
+	float fieldMagnitude;
+	u8 formatVersion;
+	bool valid;
+} magCalibration_t;
+
 typedef struct 
 {
     int16_t rollDeciDegrees;
@@ -71,6 +80,7 @@ typedef struct
 	float trimP;			/*pitch微调*/
 	float trimR;			/*roll微调*/
 	u16 thrustBase;			/*油门基础值*/
+	magCalibration_t magCalibration;	/*磁力计校准值*/
 	u8 cksum;				/*校验*/
 } configParam_t;
 
