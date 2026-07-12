@@ -11,5 +11,7 @@ typedef struct
 
 bool magCalibrationCompute(const float minimum[3], const float maximum[3],
                            magCalibrationResult_t *result);
+void magCalibrationApply(const magCalibrationResult_t *calibration,
+                         const float raw[3], float corrected[3]);
 
 #endif

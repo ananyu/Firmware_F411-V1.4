@@ -36,3 +36,13 @@ bool magCalibrationCompute(const float minimum[3], const float maximum[3],
 
     return true;
 }
+
+void magCalibrationApply(const magCalibrationResult_t *calibration,
+                         const float raw[3], float corrected[3])
+{
+    for (unsigned int axis = 0; axis < 3; axis++)
+    {
+        corrected[axis] = (raw[axis] - calibration->offset[axis]) *
+                          calibration->scale[axis];
+    }
+}

@@ -17,5 +17,15 @@ int main(void)
     assert(fabsf(result.scale[1] - 1.5f) < 0.0001f);
     assert(fabsf(result.scale[2] - 0.75f) < 0.0001f);
 
+    {
+        const float raw[3] = {40.0f, 0.0f, 45.0f};
+        float corrected[3];
+
+        magCalibrationApply(&result, raw, corrected);
+        assert(fabsf(corrected[0] - 30.0f) < 0.0001f);
+        assert(fabsf(corrected[1] - 30.0f) < 0.0001f);
+        assert(fabsf(corrected[2] - 30.0f) < 0.0001f);
+    }
+
     return 0;
 }
