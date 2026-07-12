@@ -24,6 +24,9 @@ USER/BIN/
 # VS Code local settings
 .vscode/
 
+# Local Git worktrees
+.worktrees/
+
 # OS junk
 Thumbs.db
 Desktop.ini
