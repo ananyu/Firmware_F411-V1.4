@@ -23,6 +23,14 @@
 #define SENSOR9_UPDATE_RATE   	RATE_500_HZ
 #define SENSOR9_UPDATE_DT     	(1.0f/SENSOR9_UPDATE_RATE)
 
+typedef struct
+{
+	Axis3f field;
+	u32 timestamp;
+	float magnitude;
+	bool valid;
+} magSample_t;
+
 	
 void sensorsTask(void *param);
 void sensorsInit(void);			/*传感器初始化*/
@@ -32,11 +40,12 @@ void sensorsAcquire(sensorData_t *sensors, const u32 tick);/*获取传感器数据*/
 void getSensorRawData(Axis3i16* acc, Axis3i16* gyro, Axis3i16* mag);
 bool getIsMPU9250Present(void);
 bool getIsBaroPresent(void);
+bool sensorsIsMagPresent(void);
 
 /* 单独测量传感器数据 */
 bool sensorsReadGyro(Axis3f *gyro);
 bool sensorsReadAcc(Axis3f *acc);
-bool sensorsReadMag(Axis3f *mag);
+bool sensorsReadMag(magSample_t *sample);
 bool sensorsReadBaro(baro_t *baro);
 
 #endif //__SENSORS_H

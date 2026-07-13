@@ -3,6 +3,7 @@
 #include "delay.h"
 #include "config.h"
 #include "config_param.h"
+#include "mag_calibration.h"
 #include "ledseq.h"
 #include "mpu9250.h"
 #include "sensors.h"
@@ -133,9 +134,9 @@ bool sensorsReadAcc(Axis3f *acc)
 	return (pdTRUE == xQueueReceive(accelerometerDataQueue, acc, 0));
 }
 /*从队列读取磁力计数据*/
-bool sensorsReadMag(Axis3f *mag)
+bool sensorsReadMag(magSample_t *sample)
 {
-	return (pdTRUE == xQueueReceive(magnetometerDataQueue, mag, 0));
+	return (pdTRUE == xQueueReceive(magnetometerDataQueue, sample, 0));
 }
 /*从队列读取气压数据*/
 bool sensorsReadBaro(baro_t *baro)
@@ -245,7 +246,7 @@ void sensorsDeviceInit(void)
 	/*创建传感器数据队列*/
 	accelerometerDataQueue = xQueueCreate(1, sizeof(Axis3f));
 	gyroDataQueue = xQueueCreate(1, sizeof(Axis3f));
-	magnetometerDataQueue = xQueueCreate(1, sizeof(Axis3f));
+	magnetometerDataQueue = xQueueCreate(1, sizeof(magSample_t));
 	barometerDataQueue = xQueueCreate(1, sizeof(baro_t));
 }
 /*传感器偏置初始化*/
@@ -510,6 +511,58 @@ void processBarometerMeasurements(const u8 *buffer)
 
 }
 /*处理磁力计数据*/
+static Axis3f sensorsMapMagToBody(const Axis3f raw)
+{
+	Axis3f body;
+	body.x = raw.y;
+	body.y = -raw.x;
+	body.z = raw.z;
+	return body;
+}
+
+static bool sensorsProcessMagSample(const uint8_t *buffer, magSample_t *sample)
+{
+	Axis3f raw;
+	Axis3f field;
+	float values[3];
+	magCalibrationResult_t calibration;
+
+	if (!(buffer[0] & (1U << AK8963_ST1_DRDY_BIT)) ||
+		(buffer[7] & (1U << AK8963_ST2_DERR_BIT)) ||
+		(buffer[7] & (1U << AK8963_ST2_HOFL_BIT)))
+	{
+		return false;
+	}
+
+	magRaw.x = (int16_t)(((int16_t)buffer[2] << 8) | buffer[1]);
+	magRaw.y = (int16_t)(((int16_t)buffer[4] << 8) | buffer[3]);
+	magRaw.z = (int16_t)(((int16_t)buffer[6] << 8) | buffer[5]);
+	raw.x = (float)magRaw.x / MAG_GAUSS_PER_LSB;
+	raw.y = (float)magRaw.y / MAG_GAUSS_PER_LSB;
+	raw.z = (float)magRaw.z / MAG_GAUSS_PER_LSB;
+	field = sensorsMapMagToBody(raw);
+
+	if (configParam.magCalibration.valid)
+	{
+		for (u8 axis = 0; axis < 3; axis++)
+		{
+			calibration.offset[axis] = configParam.magCalibration.offset[axis];
+			calibration.scale[axis] = configParam.magCalibration.scale[axis];
+			values[axis] = field.axis[axis];
+		}
+		magCalibrationApply(&calibration, values, values);
+		for (u8 axis = 0; axis < 3; axis++)
+		{
+			field.axis[axis] = values[axis];
+		}
+	}
+
+	sample->field = field;
+	sample->magnitude = sqrtf(field.x * field.x + field.y * field.y + field.z * field.z);
+	sample->timestamp = (u32)xTaskGetTickCount();
+	sample->valid = sample->magnitude > 0.0f;
+	return sample->valid;
+}
 void processMagnetometerMeasurements(const uint8_t *buffer)
 {
 	if (buffer[0] & (1 << AK8963_ST1_DRDY_BIT)) 
@@ -623,9 +676,12 @@ static void sensorsTaskSlow(void *param)
 		//vTaskDelay(10);	//延时10ms，100Hz
 		if (isMagPresent)
 		{
+			magSample_t sample;
 			i2cdevRead(I2C1_DEV, AK8963_ADDRESS_00, AK8963_RA_ST1, SENSORS_MAG_BUFF_LEN, magBuffer);
-			processMagnetometerMeasurements(&(magBuffer[0]));
-			xQueueOverwrite(magnetometerDataQueue, &slowSensorData.mag);
+			if (sensorsProcessMagSample(&(magBuffer[0]), &sample))
+			{
+				xQueueOverwrite(magnetometerDataQueue, &sample);
+			}
 		}
 		
 		if (isBaroPresent)
@@ -659,7 +715,6 @@ void sensorsAcquire(sensorData_t *sensors, const u32 tick)
 {	
 	sensorsReadGyro(&sensors->gyro);
 	sensorsReadAcc(&sensors->acc);
-	sensorsReadMag(&sensors->mag);
 	sensorsReadBaro(&sensors->baro);
 }
 
@@ -707,6 +762,11 @@ bool getIsMPU9250Present(void)
 bool getIsBaroPresent(void)
 {
 	return isBaroPresent;
+}
+
+bool sensorsIsMagPresent(void)
+{
+	return isMagPresent;
 }
 
 
