@@ -12,6 +12,7 @@
 #include "optical_flow.h"
 #include "vl53lxx.h"
 #include "maths.h"
+#include "config_param.h"
 
 /*FreeRTOS相关头文件*/
 #include "FreeRTOS.h"
@@ -33,7 +34,8 @@
 static bool isInit;
 
 static setpoint_t 	setpoint;	/*设置目标状态*/
-static sensorData_t sensorData;	/*传感器数据*/
+static sensorData_t sensorData;
+static magSample_t latestMag;	/*传感器数据*/
 static state_t 		state;		/*四轴姿态*/
 static control_t 	control;	/*四轴控制参数*/
 
@@ -118,6 +120,15 @@ static void fastAdjustPosZ(void)
 	}	
 }
 
+static bool magnetometerIsHealthy(const magSample_t *sample, u32 now)
+{
+	float minMagnitude = configParam.magCalibration.fieldMagnitude * 0.75f;
+	float maxMagnitude = configParam.magCalibration.fieldMagnitude * 1.25f;
+	return sensorsIsMagPresent() && configParam.magCalibration.valid && sample->valid &&
+		(now - sample->timestamp <= 50U) && sample->magnitude >= minMagnitude &&
+		sample->magnitude <= maxMagnitude;
+}
+
 void stabilizerTask(void* param)
 {
 	u32 tick = 0;
@@ -141,7 +152,8 @@ void stabilizerTask(void* param)
 		if (RATE_DO_EXECUTE(RATE_500_HZ, tick))
 		{
 			//读取陀螺仪，加速度计，磁力计，气压计数据，放入内存中
-			sensorsAcquire(&sensorData, tick);				/*获取6轴和气压数据*/
+			sensorsAcquire(&sensorData, tick);
+			sensorsReadMag(&latestMag);				/*获取6轴和气压数据*/
 		}
 
 		//姿态融合 四元数更新 欧拉角输出（250Hz）
@@ -151,7 +163,7 @@ void stabilizerTask(void* param)
 		{
 			//state存储的当前姿态数据，传入步长也就是0.004s			
 			//解决的是“我朝哪儿”
-			imuUpdate(sensorData.acc, sensorData.gyro, &state, ATTITUDE_ESTIMAT_DT);
+			imuUpdate(sensorData.acc, sensorData.gyro, &latestMag, magnetometerIsHealthy(&latestMag, getSysTickCnt()), &state, ATTITUDE_ESTIMAT_DT);
 		}
 
 		//位置预估计算（250Hz）

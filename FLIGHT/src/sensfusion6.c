@@ -23,7 +23,9 @@
 #define ACCZ_SAMPLE		350
 
 float Kp = 0.4f;		/*比例增益*/
-float Ki = 0.001f;		/*积分增益*/
+float Ki = 0.001f;
+static float KpMag = 0.08f;
+static float magGain = 0.0f;		/*积分增益*/
 float exInt = 0.0f;
 float eyInt = 0.0f;
 float ezInt = 0.0f;		/*积分误差累计*/
@@ -104,7 +106,7 @@ void imuComputeRotationMatrix(void)
     rMat[2][2] = 1.0f - 2.0f * q1q1 - 2.0f * q2q2;
 }
 
-void imuUpdate(Axis3f acc, Axis3f gyro, state_t *state , float dt)	/*数据融合 互补滤波*/
+void imuUpdate(Axis3f acc, Axis3f gyro, const magSample_t *mag, bool magHealthy, state_t *state, float dt)	/*数据融合 互补滤波*/
 {
 	float normalise;
 	float ex, ey, ez;
@@ -146,6 +148,20 @@ void imuUpdate(Axis3f acc, Axis3f gyro, state_t *state , float dt)	/*数据融合 互
 	}
 	/* 一阶近似算法，四元数运动学方程的离散化形式和积分 
 	用修正后的陀螺仪更新四元数*/
+	if (magHealthy && mag != NULL)
+	{
+		float mx = rMat[0][0]*mag->field.x + rMat[0][1]*mag->field.y + rMat[0][2]*mag->field.z;
+		float my = rMat[1][0]*mag->field.x + rMat[1][1]*mag->field.y + rMat[1][2]*mag->field.z;
+		float error = atan2f(my, mx);
+		if (fabsf(error) <= DEG2RAD * 60.0f) magGain = fminf(KpMag, magGain + dt * 2.0f);
+		else magGain = fmaxf(0.0f, magGain - dt * 2.0f);
+		gyro.z -= magGain * sinf(error);
+	}
+	else
+	{
+		magGain = fmaxf(0.0f, magGain - dt * 2.0f);
+	}
+
 	float q0Last = q0;
 	float q1Last = q1;
 	float q2Last = q2;
