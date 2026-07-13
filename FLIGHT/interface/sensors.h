@@ -41,6 +41,9 @@ void getSensorRawData(Axis3i16* acc, Axis3i16* gyro, Axis3i16* mag);
 bool getIsMPU9250Present(void);
 bool getIsBaroPresent(void);
 bool sensorsIsMagPresent(void);
+void sensorsMagCalibrationStart(void);
+bool sensorsMagCalibrationFinish(void);
+void sensorsMagCalibrationCancel(void);
 
 /* 单独测量传感器数据 */
 bool sensorsReadGyro(Axis3f *gyro);

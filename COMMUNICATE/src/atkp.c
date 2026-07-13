@@ -75,6 +75,7 @@ typedef struct
 bool isConnect = false;
 bool isInit = false;
 bool flyable = false;
+static bool magCalibrationPending = false;
 static joystickFlyui16_t rcdata;
 static xQueueHandle rxQueue;
 
@@ -455,6 +456,18 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 				break;
 			
 			case D_COMMAND_MAG_CALIB:				
+				if (!flyable)
+				{
+					if (!magCalibrationPending)
+					{
+						sensorsMagCalibrationStart();
+						magCalibrationPending = true;
+					}
+					else if (sensorsMagCalibrationFinish())
+					{
+						magCalibrationPending = false;
+					}
+				}
 				break;
 			
 			case D_COMMAND_BARO_CALIB:

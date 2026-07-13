@@ -95,6 +95,10 @@ static lpf2pData gyroLpf[3];
 static bool isMPUPresent=false;
 static bool isMagPresent=false;
 static bool isBaroPresent=false;
+static bool magCalibrationActive = false;
+static u16 magCalibrationSamples = 0;
+static float magCalibrationMin[3];
+static float magCalibrationMax[3];
 
 enum {IDLE, BMP280, SPL06}baroType = IDLE;
 
@@ -511,6 +515,56 @@ void processBarometerMeasurements(const u8 *buffer)
 
 }
 /*处理磁力计数据*/
+void sensorsMagCalibrationStart(void)
+{
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		magCalibrationMin[axis] = 3.4e38f;
+		magCalibrationMax[axis] = -3.4e38f;
+	}
+	magCalibrationSamples = 0;
+	magCalibrationActive = true;
+}
+
+void sensorsMagCalibrationCancel(void)
+{
+	magCalibrationActive = false;
+	magCalibrationSamples = 0;
+}
+
+bool sensorsMagCalibrationFinish(void)
+{
+	magCalibrationResult_t result;
+	float minimum[3];
+	float maximum[3];
+	float fieldMagnitude = 0.0f;
+
+	if (!magCalibrationActive || magCalibrationSamples < 200U)
+	{
+		return false;
+	}
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		minimum[axis] = magCalibrationMin[axis];
+		maximum[axis] = magCalibrationMax[axis];
+	}
+	if (!magCalibrationCompute(minimum, maximum, &result))
+	{
+		return false;
+	}
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		if (result.scale[axis] < 0.5f || result.scale[axis] > 2.0f) return false;
+		configParam.magCalibration.offset[axis] = result.offset[axis];
+		configParam.magCalibration.scale[axis] = result.scale[axis];
+		fieldMagnitude += 0.5f * (maximum[axis] - minimum[axis]) * result.scale[axis];
+	}
+	configParam.magCalibration.fieldMagnitude = fieldMagnitude / 3.0f;
+	configParam.magCalibration.valid = true;
+	magCalibrationActive = false;
+	saveConfigAndNotify();
+	return true;
+}
 static Axis3f sensorsMapMagToBody(const Axis3f raw)
 {
 	Axis3f body;
@@ -542,6 +596,15 @@ static bool sensorsProcessMagSample(const uint8_t *buffer, magSample_t *sample)
 	raw.z = (float)magRaw.z / MAG_GAUSS_PER_LSB;
 	field = sensorsMapMagToBody(raw);
 
+	if (magCalibrationActive)
+	{
+		for (u8 axis = 0; axis < 3; axis++)
+		{
+			if (field.axis[axis] < magCalibrationMin[axis]) magCalibrationMin[axis] = field.axis[axis];
+			if (field.axis[axis] > magCalibrationMax[axis]) magCalibrationMax[axis] = field.axis[axis];
+		}
+		magCalibrationSamples++;
+	}
 	if (configParam.magCalibration.valid)
 	{
 		for (u8 axis = 0; axis < 3; axis++)
