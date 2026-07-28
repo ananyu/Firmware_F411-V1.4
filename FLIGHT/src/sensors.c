@@ -99,6 +99,7 @@ static bool magCalibrationActive = false;
 static u16 magCalibrationSamples = 0;
 static float magCalibrationMin[3];
 static float magCalibrationMax[3];
+static float magFactoryAdjustment[3] = {1.0f, 1.0f, 1.0f};
 
 enum {IDLE, BMP280, SPL06}baroType = IDLE;
 
@@ -220,9 +221,16 @@ void sensorsDeviceInit(void)
 	ak8963Init(SENSORS_I2CBUS, AK8963_DEFAULT_ADDRESS);	//ak8963磁力计初始化
 	if (ak8963TestConnection() == true)
 	{
-		isMagPresent = true;
-		ak8963SetMode(AK8963_MODE_16BIT | AK8963_MODE_CONT2); // 16bit 100Hz
-		printf("AK8963 I2C connection [OK].\n");
+		if (ak8963ReadFactoryAdjustment(magFactoryAdjustment))
+		{
+			isMagPresent = true;
+			ak8963SetMode(AK8963_MODE_16BIT | AK8963_MODE_CONT2); // 16bit 100Hz
+			printf("AK8963 I2C connection [OK].\n");
+		}
+		else
+		{
+			printf("AK8963 factory adjustment [FAIL].\n");
+		}
 	}
 	else
 	{
@@ -591,9 +599,9 @@ static bool sensorsProcessMagSample(const uint8_t *buffer, magSample_t *sample)
 	magRaw.x = (int16_t)(((int16_t)buffer[2] << 8) | buffer[1]);
 	magRaw.y = (int16_t)(((int16_t)buffer[4] << 8) | buffer[3]);
 	magRaw.z = (int16_t)(((int16_t)buffer[6] << 8) | buffer[5]);
-	raw.x = (float)magRaw.x / MAG_GAUSS_PER_LSB;
-	raw.y = (float)magRaw.y / MAG_GAUSS_PER_LSB;
-	raw.z = (float)magRaw.z / MAG_GAUSS_PER_LSB;
+	raw.x = ((float)magRaw.x * magFactoryAdjustment[0]) / MAG_GAUSS_PER_LSB;
+	raw.y = ((float)magRaw.y * magFactoryAdjustment[1]) / MAG_GAUSS_PER_LSB;
+	raw.z = ((float)magRaw.z * magFactoryAdjustment[2]) / MAG_GAUSS_PER_LSB;
 	field = sensorsMapMagToBody(raw);
 
 	if (magCalibrationActive)
