@@ -37,6 +37,10 @@
 #define SENSORS_ACCEL_FS_CFG      MPU9250_ACCEL_FS_16
 #define SENSORS_G_PER_LSB_CFG     MPU9250_G_PER_LSB_16
 
+#define SENSORS_IMU_FIFO_FRAME_LEN 12U
+#define SENSORS_IMU_FIFO_BACKLOG_WARN  120U
+#define SENSORS_IMU_FIFO_QUEUE_LEN  48U
+
 #define SENSORS_NBR_OF_BIAS_SAMPLES		1024	/* 计算方差的采样样本个数 */
 #define GYRO_VARIANCE_BASE				4000	/* 陀螺仪零偏方差阈值 */
 #define SENSORS_ACC_SCALE_SAMPLES  		200		/* 加速计采样个数 */
@@ -72,6 +76,7 @@ typedef struct
 
 static fast_sensor_data_t fastSensorData;
 static slow_sensor_data_t slowSensorData;
+//static uint8_t imuFifoFrame[SENSORS_IMU_FIFO_FRAME_LEN];
 
 BiasObj	gyroBiasRunning;
 static Axis3f  gyroBias;
@@ -101,6 +106,11 @@ static float magCalibrationMin[3];
 static float magCalibrationMax[3];
 static float magFactoryAdjustment[3] = {1.0f, 1.0f, 1.0f};
 
+/*IMU FIFO相关计数器,调试使用*/
+static u32 imuFifoBacklogWarningCount;
+static u32 imuFifoOverflowCount;
+static u32 imuFifoAlignmentErrorCount;
+
 enum {IDLE, BMP280, SPL06}baroType = IDLE;
 
 //static uint8_t buffer[SENSORS_MPU9250_BUFF_LEN + SENSORS_MAG_BUFF_LEN + SENSORS_BARO_BUFF_LEN] = {0};
@@ -110,11 +120,10 @@ static uint8_t magBuffer[SENSORS_MAG_BUFF_LEN];
 // static uint8_t baroBuffer[SENSORS_BARO_DATA_LEN];
 static uint8_t baroBuffer[SENSORS_BARO_BUFF_LEN];
 
-static xQueueHandle accelerometerDataQueue;
-static xQueueHandle gyroDataQueue;
 static xQueueHandle magnetometerDataQueue;
 static xQueueHandle barometerDataQueue;
 static xSemaphoreHandle sensorsDataReady;
+static xQueueHandle imuSampleQueue;
 
 static void applyAxis3fLpf(lpf2pData *data, Axis3f* in);
 static void sensorsBiasObjInit(BiasObj* bias);
@@ -123,21 +132,12 @@ static bool sensorsFindBiasValue(BiasObj* bias);
 static void sensorsAddBiasValue(BiasObj* bias, int16_t x, int16_t y, int16_t z);
 static void sensorsTaskFast(void *param);
 static void sensorsTaskSlow(void *param);
+static void processAccGyroFifoFrame(const uint8_t *frame);
+static void sensorSetupImuFifo(void);
+static void sensorResetImuFifo(void);
 
 
 
-
-/*从队列读取陀螺数据*/
-bool sensorsReadGyro(Axis3f *gyro)
-{
-	//语法（句柄，数据指针，等待时间）从队列读取数据，如果队列里没有数据了，就返回false
-	return (pdTRUE == xQueueReceive(gyroDataQueue, gyro, 0));
-}
-/*从队列读取加速计数据*/
-bool sensorsReadAcc(Axis3f *acc)
-{
-	return (pdTRUE == xQueueReceive(accelerometerDataQueue, acc, 0));
-}
 /*从队列读取磁力计数据*/
 bool sensorsReadMag(magSample_t *sample)
 {
@@ -256,10 +256,9 @@ void sensorsDeviceInit(void)
 	}
 
 	/*创建传感器数据队列*/
-	accelerometerDataQueue = xQueueCreate(1, sizeof(Axis3f));
-	gyroDataQueue = xQueueCreate(1, sizeof(Axis3f));
 	magnetometerDataQueue = xQueueCreate(1, sizeof(magSample_t));
 	barometerDataQueue = xQueueCreate(1, sizeof(baro_t));
+	imuSampleQueue = xQueueCreate(SENSORS_IMU_FIFO_QUEUE_LEN, sizeof(imuSample_t));
 }
 /*传感器偏置初始化*/
 static void sensorsBiasObjInit(BiasObj* bias)
@@ -347,6 +346,26 @@ static void sensorSetupImuDataReadyInterrupt(void)
 	mpu9250SetIntEnabled(true);		// 使能中断
 }
 
+static void sensorSetupImuFifo(void)
+{
+	mpu9250SetFIFOEnabled(false);	// 先关闭FIFO
+	mpu9250SetTempFIFOEnabled(false);	// 关闭温度数据写入FIFO
+	mpu9250SetAccelFIFOEnabled(true);	// 使能加速计数据写入FIFO
+	//mpu9250SetGyroFIFOEnabled(true);	// 使能陀螺仪数据写入FIFO
+	mpu9250SetXGyroFIFOEnabled(true);
+	mpu9250SetYGyroFIFOEnabled(true);
+	mpu9250SetZGyroFIFOEnabled(true);
+	mpu9250ResetFIFO();	// 重置FIFO
+	mpu9250SetFIFOEnabled(true);	// 使能FIFO
+}
+
+static void sensorResetImuFifo(void)
+{
+	mpu9250SetFIFOEnabled(false);	// 先关闭FIFO
+	mpu9250ResetFIFO();	// 重置FIFO
+	mpu9250SetFIFOEnabled(true);	// 使能FIFO
+}
+
 /* 传感器初始化 */
 void sensorsInit(void)
 {
@@ -360,68 +379,6 @@ void sensorsInit(void)
 	isInit = true;
 }
 
-
-/*设置传感器从模式读取，根据PX4方案快慢方案这个需要关闭*/
-static void sensorsSetupSlaveRead(void)
-{
-	mpu9250SetSlave4MasterDelay(4); 	// 从机读取速率: 100Hz = (1000Hz / (1 + 9))
-
-	mpu9250SetI2CBypassEnabled(false);	//主机模式
-	mpu9250SetWaitForExternalSensorEnabled(true); 	
-	mpu9250SetInterruptMode(0); 		// 中断高电平有效
-	mpu9250SetInterruptDrive(0); 		// 推挽输出
-	mpu9250SetInterruptLatch(0); 		// 中断锁存模式(0=50us-pulse, 1=latch-until-int-cleared)
-	mpu9250SetInterruptLatchClear(1); 	// 中断清除模式(0=status-read-only, 1=any-register-read)
-	mpu9250SetSlaveReadWriteTransitionEnabled(false); // 关闭从机读写传输
-	mpu9250SetMasterClockSpeed(I2C_MST_CLK_400_kHz); 	// 设置i2c速度400kHz
-
-#ifdef SENSORS_ENABLE_MAG_AK8963
-	if (isMagPresent)
-	{
-		// 设置MPU9250主机要读取的寄存器
-		mpu9250SetSlaveAddress(0, MPU9250_I2C_SLV_ADDR_READ | AK8963_ADDRESS_00); 	// 设置磁力计为0号从机
-		mpu9250SetSlaveRegister(0, AK8963_RA_ST1); 				// 从机0需要读取的寄存器
-		mpu9250SetSlaveDataLength(0, SENSORS_MAG_BUFF_LEN); 	// 读取8个字节(ST1, x, y, z heading, ST2 (overflow check))
-		mpu9250SetSlaveDelayEnabled(0, true);
-		mpu9250SetSlaveEnabled(0, true);
-	}
-#endif
-
-
-	if (isBaroPresent && baroType == BMP280)
-	{
-		// 设置MPU9250主机要读取BMP280的寄存器
-		mpu9250SetSlaveAddress(1, MPU9250_I2C_SLV_ADDR_READ | BMP280_I2C_ADDR);		// 设置气压计状态寄存器为1号从机
-		mpu9250SetSlaveRegister(1, BMP280_STAT_REG);			// 从机1需要读取的寄存器
-		mpu9250SetSlaveDataLength(1, SENSORS_BARO_STATUS_LEN);	// 读取1个字节
-		mpu9250SetSlaveDelayEnabled(1, true);
-		mpu9250SetSlaveEnabled(1, true);
-
-		mpu9250SetSlaveAddress(2, MPU9250_I2C_SLV_ADDR_READ | BMP280_I2C_ADDR);		// 设置气压计数据寄存器为2号从机
-		mpu9250SetSlaveRegister(2, BMP280_PRESSURE_MSB_REG);	// 从机2需要读取的寄存器
-		mpu9250SetSlaveDataLength(2, SENSORS_BARO_DATA_LEN);	// 读取6个字节
-		mpu9250SetSlaveDelayEnabled(2, true);
-		mpu9250SetSlaveEnabled(2, true);
-	}
-	if (isBaroPresent && baroType == SPL06)
-	{
-		// 设置MPU9250主机要读取SPL06的寄存器
-		mpu9250SetSlaveAddress(1, MPU9250_I2C_SLV_ADDR_READ | SPL06_I2C_ADDR);		// 设置气压计状态寄存器为1号从机
-		mpu9250SetSlaveRegister(1, SPL06_MODE_CFG_REG);			// 从机1需要读取的寄存器
-		mpu9250SetSlaveDataLength(1, SENSORS_BARO_STATUS_LEN);	// 读取1个字节
-		mpu9250SetSlaveDelayEnabled(1, true);
-		mpu9250SetSlaveEnabled(1, true);
-
-		mpu9250SetSlaveAddress(2, MPU9250_I2C_SLV_ADDR_READ | SPL06_I2C_ADDR);		// 设置气压计数据寄存器为2号从机
-		mpu9250SetSlaveRegister(2, SPL06_PRESSURE_MSB_REG);		// 从机2需要读取的寄存器
-		mpu9250SetSlaveDataLength(2, SENSORS_BARO_DATA_LEN);	// 读取6个字节
-		mpu9250SetSlaveDelayEnabled(2, true);
-		mpu9250SetSlaveEnabled(2, true);
-	}
-
-	mpu9250SetI2CMasterModeEnabled(true);	//使能mpu9250主机模式
-	mpu9250SetIntDataReadyEnabled(true);	//数据就绪中断使能
-}
 
 /**
  * 往方差缓冲区（循环缓冲区）添加一个新值，缓冲区满后，替换旧的的值
@@ -689,6 +646,46 @@ void processAccGyroMeasurements(const uint8_t *buffer)
 
 	applyAxis3fLpf(accLpf, &fastSensorData.acc);
 }
+
+static void processAccGyroFifoFrame(const uint8_t *frame)
+{
+	
+	int16_t ay = (((int16_t)frame[0]) << 8) | frame[1];
+	int16_t ax = (((int16_t)frame[2]) << 8) | frame[3];
+	int16_t az = (((int16_t)frame[4]) << 8) | frame[5];
+
+	int16_t gy = (((int16_t)frame[6]) << 8) | frame[7];
+	int16_t gx = (((int16_t)frame[8]) << 8) | frame[9];
+	int16_t gz = (((int16_t)frame[10]) << 8) | frame[11];
+
+	accRaw.x = ax;/*用于上传到上位机*/
+	accRaw.y = ay;
+	accRaw.z = az;
+	//陀螺仪校准偏差，后面每次读取都需要 减去这个值
+	gyroRaw.x = gx - gyroBias.x;
+	gyroRaw.y = gy - gyroBias.y;
+	gyroRaw.z = gz - gyroBias.z;
+//设置已经校准完成标志，计算陀螺零偏和加速计缩放因子
+	gyroBiasFound = processGyroBias(gx, gy, gz, &gyroBias);
+	//ACC校准需要等陀螺仪ok后才行，所以可能可以优化一下
+	if (gyroBiasFound)
+	{
+		processAccScale(ax, ay, az);	/*计算accScale*/
+	}
+	
+	//将原始数据转化为物理量，陀螺仪需要减去偏置值，乘以转化系数，得到单位为°/s的角速度值；加速计直接乘以转化系数和缩放因子，得到单位为g的加速度值
+	fastSensorData.gyro.x = -(gx - gyroBias.x) * SENSORS_DEG_PER_LSB_CFG;	/*单位 °/s */
+	fastSensorData.gyro.y =  (gy - gyroBias.y) * SENSORS_DEG_PER_LSB_CFG;
+	fastSensorData.gyro.z =  (gz - gyroBias.z) * SENSORS_DEG_PER_LSB_CFG;
+	applyAxis3fLpf(gyroLpf, &fastSensorData.gyro);	
+
+	fastSensorData.acc.x = -(ax) * SENSORS_G_PER_LSB_CFG / accScale;	/*单位 g(9.8m/s^2)*/
+	fastSensorData.acc.y =  (ay) * SENSORS_G_PER_LSB_CFG / accScale;	/*重力加速度缩放因子accScale 根据样本计算得出*/
+	fastSensorData.acc.z =  (az) * SENSORS_G_PER_LSB_CFG / accScale;
+
+	applyAxis3fLpf(accLpf, &fastSensorData.acc);
+}
+
 /*传感器任务*/
 void sensorsTask(void *param)
 {
@@ -697,8 +694,9 @@ void sensorsTask(void *param)
 	sensorsInit();	/*传感器初始化*/
 	vTaskDelay(pdMS_TO_TICKS(1000));	/*延时1s，等待传感器稳定*/
 	//sensorsSetupSlaveRead();/*设置传感器从模式读取，关闭，改为快慢读取方案*/
+	
+	sensorSetupImuFifo();	/*设置MPU9250 FIFO，FIFO使能加速度计和陀螺仪数据写入FIFO*/
 	sensorSetupImuDataReadyInterrupt();	/*设置MPU9250中断，数据就绪中断*/
-
 	vTaskSuspendAll();	
 	xTaskCreate(sensorsTaskFast, "sensorsTaskFast", 350, NULL, 6, NULL);
 	xTaskCreate(sensorsTaskSlow, "sensorsTaskSlow", 300, NULL, 3, NULL);
@@ -717,21 +715,52 @@ static void sensorsTaskFast(void *param)
 		// 就会一直等下去，直到有任务释放这个信号量，或者等到超时（这里是无限等待）
 		if (pdTRUE == xSemaphoreTake(sensorsDataReady, portMAX_DELAY))
 		{
-			/*确定数据长度*/
-			u8 dataLen = (u8) (SENSORS_MPU9250_BUFF_LEN);
+			/*新读取fifo方式*/
+			if (mpu9250GetIntFIFOBufferOverflowStatus())
+			{
+				imuFifoOverflowCount++;
+				sensorResetImuFifo();
+				continue;
+			}
 
-			//传入参数（通过 I2C1 这条总线，从 MPU9250 这个器件的某个起始寄存器开始，连续读取 dataLen 个字节，存到 buffer 里。
-			i2cdevRead(I2C1_DEV, MPU9250_ADDRESS_AD0_HIGH, MPU9250_RA_ACCEL_XOUT_H, dataLen, imuBuffer);
-			
-			/*处理原始数据，带了滤波，校准等*/
-			processAccGyroMeasurements(&(imuBuffer[0]));
-			
-			//挂起任务，防止其他任务切换导致队列没完全写完
-			vTaskSuspendAll();	/*确保同一时刻把数据放入队列中，因为后面有其他任务使用数据，避免拿到一帧新一帧旧*/
-			xQueueOverwrite(accelerometerDataQueue, &fastSensorData.acc);
-			xQueueOverwrite(gyroDataQueue, &fastSensorData.gyro);
-			
-			xTaskResumeAll();
+			uint16_t fifoCount = mpu9250GetFIFOCount();
+			if (fifoCount % SENSORS_IMU_FIFO_FRAME_LEN != 0U)
+			{
+				imuFifoAlignmentErrorCount++;
+				sensorResetImuFifo();
+				continue;
+			}
+
+			if (fifoCount > SENSORS_IMU_FIFO_BACKLOG_WARN)
+			{
+				imuFifoBacklogWarningCount++;
+			}
+
+			while (fifoCount >= SENSORS_IMU_FIFO_FRAME_LEN)
+			{
+				uint8_t fifoBuffer[SENSORS_IMU_FIFO_FRAME_LEN];
+				mpu9250GetFIFOBytes(fifoBuffer, SENSORS_IMU_FIFO_FRAME_LEN);
+				processAccGyroFifoFrame(fifoBuffer);
+				fifoCount -= SENSORS_IMU_FIFO_FRAME_LEN;
+
+				imuSample_t imuSample;
+				imuSample.acc = fastSensorData.acc;
+				imuSample.gyro = fastSensorData.gyro;
+
+				if (xQueueSendToBack(imuSampleQueue, &imuSample, 0) != pdTRUE)
+				{
+					//队列满了，丢弃最旧的样本
+					imuSample_t dropSample;
+					xQueueReceive(imuSampleQueue, &dropSample, 0);
+					xQueueSendToBack(imuSampleQueue, &imuSample, 0);
+				}
+
+			}
+			if (fifoCount != 0)
+			{
+				imuFifoAlignmentErrorCount++;
+				sensorResetImuFifo();
+			}
 		}
 	}	
 }
@@ -761,15 +790,15 @@ static void sensorsTaskSlow(void *param)
 			{
 				if (baroType == BMP280)
 				{
-					i2cdevRead(I2C1_DEV, BMP280_I2C_ADDR, BMP280_STAT_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-					i2cdevRead(I2C1_DEV, BMP280_I2C_ADDR, BMP280_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
+					i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_STAT_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
+					i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
 					processBarometerMeasurements(&(baroBuffer[0]));
 					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
 				}
 				else if (baroType == SPL06)
 				{
-					i2cdevRead(I2C1_DEV, SPL06_I2C_ADDR, SPL06_MODE_CFG_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-					i2cdevRead(I2C1_DEV, SPL06_I2C_ADDR, SPL06_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
+					i2cdevRead(SENSORS_I2CBUS, SPL06_I2C_ADDR, SPL06_MODE_CFG_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
+					i2cdevRead(SENSORS_I2CBUS, SPL06_I2C_ADDR, SPL06_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
 					processBarometerMeasurements(&(baroBuffer[0]));
 					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
 				}
@@ -787,6 +816,9 @@ void sensorsAcquire(sensorData_t *sensors, const u32 tick)
 	sensorsReadGyro(&sensors->gyro);
 	sensorsReadAcc(&sensors->acc);
 	sensorsReadBaro(&sensors->baro);
+	(void)tick;
+	sensors->magUpdate = sensorsReadMag(&sensors->mag);
+	sensors->baroUpdate = sensorsReadBaro(&sensors->baro);
 }
 
 void __attribute__((used)) EXTI4_Callback(void)
@@ -840,5 +872,14 @@ bool sensorsIsMagPresent(void)
 	return isMagPresent;
 }
 
+bool sensorsIsMagPresent(void)
+{
+	return isMagPresent;
+}
+
+bool sensorsReadImuSample(imuSample_t *sample)
+{
+	return (pdTRUE == xQueueReceive(imuSampleQueue, sample, 0));
+}
 
 

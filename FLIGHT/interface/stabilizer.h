@@ -26,6 +26,7 @@
 #define RATE_250_HZ 	250
 #define RATE_500_HZ 	500
 #define RATE_1000_HZ 	1000
+#define IMU_SAMPLE_DT 0.001f
 
 #define RATE_DO_EXECUTE(RATE_HZ, TICK) ((TICK % (MAIN_LOOP_RATE / RATE_HZ)) == 0)
 
