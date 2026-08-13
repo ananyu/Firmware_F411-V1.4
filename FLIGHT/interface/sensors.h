@@ -23,6 +23,12 @@
 #define SENSOR9_UPDATE_RATE   	RATE_500_HZ
 #define SENSOR9_UPDATE_DT     	(1.0f/SENSOR9_UPDATE_RATE)
 
+typedef struct
+{
+    Axis3f acc;        //加速度计
+    Axis3f gyro;       //陀螺仪
+} imuSample_t;
+
 	
 void sensorsTask(void *param);
 void sensorsInit(void);			/*传感器初始化*/
@@ -34,9 +40,9 @@ bool getIsMPU9250Present(void);
 bool getIsBaroPresent(void);
 
 /* 单独测量传感器数据 */
-bool sensorsReadGyro(Axis3f *gyro);
-bool sensorsReadAcc(Axis3f *acc);
+
 bool sensorsReadMag(Axis3f *mag);
 bool sensorsReadBaro(baro_t *baro);
+bool sensorsReadImuSample(imuSample_t *sample);
 
 #endif //__SENSORS_H

@@ -45,6 +45,7 @@ static float fusedHeightLpf = 0.f;	/*融合高度，低通*/
 static float startBaroAsl = 0.f;	/*起飞点海拔*/
 
 
+
 /*估测系统*/
 static estimator_t estimator = 
 {
@@ -86,6 +87,10 @@ static void inavFilterCorrectVel(int axis, float dt, float e, float w)
 
 void positionEstimate(sensorData_t* sensorData, state_t* state, float dt) 
 {	
+	bool hasFreshBaro = sensorData->baroUpdate;	/*气压计数据更新标志*/
+	bool useZCorrection = false;	/*使用高度校正标志*/
+	float errPosZ = 0.0f;
+
 	static float rangeLpf = 0.f;
 	static float accLpf[3] = {0.f};		/*加速度低通*/	
 	float weight = wBaro;
@@ -105,19 +110,39 @@ void positionEstimate(sensorData_t* sensorData, state_t* state, float dt)
 		if(quality < 0.3f)	/*低于这个可行度，激光数据不可用*/
 		{
 			quality = 0.f;
-		}else
+		}
+
+		if (quality > 0.f)
 		{
 			weight = quality;
-			//当前激光测距仪可信的话就更新气压计参考高度，是地面0点的高度，不是当前的高度
-			startBaroAsl = sensorData->baro.asl - rangeLpf;
+
+			if (hasFreshBaro)
+			{
+				startBaroAsl = sensorData->baro.asl - rangeLpf;	/*起飞点海拔*/
+			}
+
+			fusedHeight = rangeLpf * quality + relateHight * (1.f - quality);	/*融合高度*/
+			fusedHeightLpf += (fusedHeight - fusedHeightLpf) * 0.1f;	/*融合高度 低通*/
+			useZCorrection = true;	/*使用高度校正*/
 		}
-		fusedHeight = rangeLpf * quality + (1.0f - quality) * relateHight;/*融合高度*/	
+		else if (hasFreshBaro)	/*激光数据不可用，使用气压计*/
+		{
+			fusedHeight = relateHight;	/*融合高度*/
+			fusedHeightLpf += (fusedHeight - fusedHeightLpf) * 0.1f;	/*融合高度 低通*/
+			useZCorrection = true;	/*使用高度校正*/
+		}
 	}
 	else	/*无光流模块*/
 	{
-		fusedHeight = relateHight;	/*融合高度*/
+		if (hasFreshBaro)	/*气压计数据更新*/
+		{
+			fusedHeight = relateHight;	/*融合高度*/
+			fusedHeightLpf += (fusedHeight - fusedHeightLpf) * 0.1f;	/*融合高度 低通*/
+			useZCorrection = true;	/*使用高度校正*/
+		}
+		
 	}
-	fusedHeightLpf += (fusedHeight - fusedHeightLpf) * 0.1f;	/*融合高度 低通*/
+	
 	
 	if(isRstHeight)
 	{	
@@ -158,7 +183,7 @@ void positionEstimate(sensorData_t* sensorData, state_t* state, float dt)
 		
 		estimator.vel[Z] = 0.f;
 		estimator.pos[Z] = fusedHeight;
-	}	
+	}
 	
 	
 	Axis3f accelBF;
@@ -195,13 +220,14 @@ void positionEstimate(sensorData_t* sensorData, state_t* state, float dt)
 		state->acc.z = constrainf(estimator.acc[Z], -ACC_LIMIT_MAX, ACC_LIMIT_MAX);	/*最大加速度限幅*/
 	}		
 
-	
-	float errPosZ = fusedHeight - estimator.pos[Z];
-	
-	/* 位置预估: Z-axis */
 	inavFilterPredict(Z, dt, estimator.acc[Z]);
-	/* 位置校正: Z-axis */
-	inavFilterCorrectPos(Z, dt, errPosZ, weight);	
+
+	if (useZCorrection)
+	{
+		errPosZ = fusedHeight - estimator.pos[Z];
+		inavFilterCorrectPos(Z, dt, errPosZ, weight);
+	}
+	
 
 	if(getModuleID() == OPTICAL_FLOW)	/*光流模块可用*/
 	{		
@@ -231,7 +257,10 @@ void positionEstimate(sensorData_t* sensorData, state_t* state, float dt)
 	/*加速度偏置校正*/
 	Axis3f accelBiasCorr = {{ 0, 0, 0}};
 	
-	accelBiasCorr.z -= errPosZ  * sq(wBaro);
+	if (useZCorrection)
+	{
+		accelBiasCorr.z -= errPosZ * sq(wBaro);
+	}
 	float accelBiasCorrMagnitudeSq = sq(accelBiasCorr.x) + sq(accelBiasCorr.y) + sq(accelBiasCorr.z);
 	if (accelBiasCorrMagnitudeSq < sq(INAV_ACC_BIAS_ACCEPTANCE_VALUE)) 
 	{

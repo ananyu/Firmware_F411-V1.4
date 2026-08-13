@@ -158,6 +158,8 @@ typedef struct
 	Axis3f gyro;	//陀螺仪
 	Axis3f mag;		//磁力计
 	baro_t baro;	//气压计
+	bool magUpdate;	//磁力计数据更新标志
+	bool baroUpdate;	//气压计数据更新标志
 	point_t position;	//
 	zRange_t zrange;	//激光测距传感器测量的高度信息
 } sensorData_t;

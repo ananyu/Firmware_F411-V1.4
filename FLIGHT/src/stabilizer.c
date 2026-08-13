@@ -30,7 +30,11 @@
  * All rights reserved
 ********************************************************************************/
 
+
+
 static bool isInit;
+
+
 
 static setpoint_t 	setpoint;	/*设置目标状态*/
 static sensorData_t sensorData;	/*传感器数据*/
@@ -122,6 +126,7 @@ void stabilizerTask(void* param)
 {
 	u32 tick = 0;
 	u32 lastWakeTime = getSysTickCnt();
+	imuSample_t imuSample;	/*IMU采样数据*/
 	
 	//点亮初始化的灯，右上角绿色，按seq_alive灯序闪烁
 	ledseqRun(SYS_LED, seq_alive);
@@ -136,22 +141,19 @@ void stabilizerTask(void* param)
 	while(1) 
 	{
 		vTaskDelayUntil(&lastWakeTime, MAIN_LOOP_DT);		/*1ms周期延时*/
-
-		//获取6轴和气压数据（500Hz）
+		sensorData.magUpdate = false;
+		sensorData.baroUpdate = false;
+		//获取磁力计和气压数据（500Hz）
 		if (RATE_DO_EXECUTE(RATE_500_HZ, tick))
 		{
-			//读取陀螺仪，加速度计，磁力计，气压计数据，放入内存中
-			sensorsAcquire(&sensorData, tick);				/*获取6轴和气压数据*/
+			sensorsAcquire(&sensorData, tick);				
 		}
 
-		//姿态融合 四元数更新 欧拉角输出（250Hz）
-		//每隔 4ms，用最新的加速度计和陀螺仪数据做一次姿态融合，
-		// 更新当前无人机的横滚、俯仰、偏航等姿态状态。
-		if (RATE_DO_EXECUTE(ATTITUDE_ESTIMAT_RATE, tick))
+		while (sensorsReadImuSample(&imuSample))	/*读取IMU采样数据*/
 		{
-			//state存储的当前姿态数据，传入步长也就是0.004s			
-			//解决的是“我朝哪儿”
-			imuUpdate(sensorData.acc, sensorData.gyro, &state, ATTITUDE_ESTIMAT_DT);
+			sensorData.acc= imuSample.acc;
+			sensorData.gyro= imuSample.gyro;
+			imuUpdate(sensorData.acc, sensorData.gyro, &state, IMU_SAMPLE_DT);	/*数据融合 互补滤波*/
 		}
 
 		//位置预估计算（250Hz）
