@@ -58,7 +58,7 @@ static bool isInit = false;
 s32 kp = 0;
 s32 kt = 0;
 
-bool spl0601_get_calib_param(void)
+static bool spl0601_get_calib_param(void)
 {
 	u8 buffer[SPL06_CALIB_COEFFICIENT_LENGTH] = {0};
 	
@@ -102,7 +102,7 @@ static bool spl06WriteAndVerify(u8 address, u8 data, u8 mask)
     return (readback & mask) == (data & mask);
 }
 
-bool spl0601_rateset(spl06Sensor_e sensor, 
+static bool spl0601_rateset(spl06Sensor_e sensor, 
                     uint8_t measureRate, 
                     uint8_t oversamplRate)
 {
@@ -179,7 +179,10 @@ bool SPL06Init(I2C_Dev *i2cPort)
 
     delay_ms(50);
 	
-	i2cdevReadByte(I2Cx, devAddr, SPL06_CHIP_ID, &SPL06ID);	/* ∂¡»°SPL06 ID*/
+	if(!i2cdevReadByte(I2Cx, devAddr, SPL06_CHIP_ID, &SPL06ID))	/* ∂¡»°SPL06 ID*/
+	{
+		return false;
+	}
 	
 	if(SPL06ID == SPL06_DEFAULT_CHIP_ID)
 		printf("SPL06 ID IS: 0x%X\n",SPL06ID);
@@ -271,6 +274,10 @@ static bool spl06PressureDataReady(void)
 
 bool SPL06GetData(float *pressure, float *temperature, float *asl)
 {
+    if(!isInit)
+    {
+        return false;
+    }
     int32_t rawPressure;
     int32_t rawTemperature;
     float compensatedTemperature;
