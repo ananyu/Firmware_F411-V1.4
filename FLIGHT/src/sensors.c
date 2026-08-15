@@ -463,21 +463,6 @@ void processBarometerMeasurements(const u8 *buffer)
 			slowSensorData.baro.asl = bmp280PressureToAltitude(&pressure) * 100.f;	/*转换成海拔*/
 		//}
 	}
-	else if (baroType == SPL06)
-	{
-		s32 rawPressure = (int32_t)buffer[1]<<16 | (int32_t)buffer[2]<<8 | (int32_t)buffer[3];
-		rawPressure = (rawPressure & 0x800000) ? (0xFF000000 | rawPressure) : rawPressure;
-		
-		s32 rawTemp = (int32_t)buffer[4]<<16 | (int32_t)buffer[5]<<8 | (int32_t)buffer[6];
-		rawTemp = (rawTemp & 0x800000) ? (0xFF000000 | rawTemp) : rawTemp;
-		
-		temp = spl0601_get_temperature(rawTemp);
-		pressure = spl0601_get_pressure(rawPressure, rawTemp);
-		slowSensorData.baro.pressure = pressure / 100.0f;
-		slowSensorData.baro.temperature = (float)temp; /*单位度*/
-		slowSensorData.baro.asl = SPL06PressureToAltitude(slowSensorData.baro.pressure) * 100.f; //cm
-	}
-
 }
 /*处理磁力计数据*/
 void sensorsMagCalibrationStart(void)
@@ -786,24 +771,27 @@ static void sensorsTaskSlow(void *param)
 		
 		if (isBaroPresent)
 		{
-			if((slowTick & 0x01) == 0)	//50Hz
+			if (baroType == BMP280 && (slowTick & 0x01) == 0) //50Hz
 			{
-				if (baroType == BMP280)
+				i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_STAT_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
+				i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
+				processBarometerMeasurements(&(baroBuffer[0]));
+				xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
+			}
+			else if (baroType == SPL06)
+			{
+				float pressure;
+				float temperature;
+				float asl;
+
+				if (SPL06GetData(&pressure, &temperature, &asl))
 				{
-					i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_STAT_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-					i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
-					processBarometerMeasurements(&(baroBuffer[0]));
-					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
-				}
-				else if (baroType == SPL06)
-				{
-					i2cdevRead(SENSORS_I2CBUS, SPL06_I2C_ADDR, SPL06_MODE_CFG_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-					i2cdevRead(SENSORS_I2CBUS, SPL06_I2C_ADDR, SPL06_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
-					processBarometerMeasurements(&(baroBuffer[0]));
+					slowSensorData.baro.pressure = pressure;
+					slowSensorData.baro.temperature = temperature;
+					slowSensorData.baro.asl = asl * 100.0f;
 					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
 				}
 			}
-				
 		}
 
 		slowTick++;
@@ -813,11 +801,11 @@ static void sensorsTaskSlow(void *param)
 /*获取传感器数据*/
 void sensorsAcquire(sensorData_t *sensors, const u32 tick)	
 {	
-	sensorsReadGyro(&sensors->gyro);
-	sensorsReadAcc(&sensors->acc);
-	sensorsReadBaro(&sensors->baro);
+	// sensorsReadGyro(&sensors->gyro);
+	// sensorsReadAcc(&sensors->acc);
+	// sensorsReadBaro(&sensors->baro);
 	(void)tick;
-	sensors->magUpdate = sensorsReadMag(&sensors->mag);
+	// sensors->magUpdate = sensorsReadMag(&sensors->mag);
 	sensors->baroUpdate = sensorsReadBaro(&sensors->baro);
 }
 
@@ -872,14 +860,7 @@ bool sensorsIsMagPresent(void)
 	return isMagPresent;
 }
 
-bool sensorsIsMagPresent(void)
-{
-	return isMagPresent;
-}
-
 bool sensorsReadImuSample(imuSample_t *sample)
 {
 	return (pdTRUE == xQueueReceive(imuSampleQueue, sample, 0));
 }
-
-

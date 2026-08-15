@@ -35,6 +35,8 @@
 #define SPL06_RST_REG					(0x0C)  /* Softreset Register */
 #define SPL06_CHIP_ID					(0x0D)  /* Chip ID Register */
 #define SPL06_COEFFICIENT_CALIB_REG		(0x10)  /* Coeffcient calibraion Register */
+#define SPL06_MEAS_CFG_PRS_RDY            (1U << 4)  /* Pressure measurement ready */
+#define SPL06_MEAS_CFG_TMP_RDY            (1U << 5)  /* Temperature measurement ready */
 
 #define SPL06_CALIB_COEFFICIENT_LENGTH	(18)
 #define SPL06_DATA_FRAME_SIZE			(6)
@@ -64,13 +66,9 @@
 #define SPL06_OVERSAMP_64				(0x06)
 #define SPL06_OVERSAMP_128				(0x07)
 
-float spl0601_get_temperature(int32_t rawTemperature);
-float spl0601_get_pressure(int32_t rawPressure, int32_t rawTemperature);
-
 bool SPL06Init(I2C_Dev *i2cPort);
-void SPL06GetData(float* pressure, float* temperature, float* asl);
+bool SPL06GetData(float *pressure, float *temperature, float *asl);
 void pressureFilter(float* in, float* out);/*限幅平均滤波法*/
-float SPL06PressureToAltitude(float pressure/*, float* groundPressure, float* groundTemp*/);
 
 #endif
 
