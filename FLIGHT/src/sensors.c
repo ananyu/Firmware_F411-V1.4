@@ -115,10 +115,10 @@ enum {IDLE, BMP280, SPL06}baroType = IDLE;
 
 //static uint8_t buffer[SENSORS_MPU9250_BUFF_LEN + SENSORS_MAG_BUFF_LEN + SENSORS_BARO_BUFF_LEN] = {0};
 
-static uint8_t imuBuffer[SENSORS_MPU9250_BUFF_LEN];
+// static uint8_t imuBuffer[SENSORS_MPU9250_BUFF_LEN];
 static uint8_t magBuffer[SENSORS_MAG_BUFF_LEN];
-// static uint8_t baroBuffer[SENSORS_BARO_DATA_LEN];
-static uint8_t baroBuffer[SENSORS_BARO_BUFF_LEN];
+
+
 
 static xQueueHandle magnetometerDataQueue;
 static xQueueHandle barometerDataQueue;
@@ -441,29 +441,7 @@ static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBias
 	return gyroBiasRunning.isBiasValueFound;
 }
 
-/*处理气压计数据*/
-void processBarometerMeasurements(const u8 *buffer)
-{
-	static float temp;
-    static float pressure;
-	
-	if (baroType == BMP280)
-	{
-		// Check if there is a new data update
-		//if ((buffer[0] & 0x08)) /*bit3=1 转换完成*/
-		//{
-			s32 rawPressure = (s32)((((u32)(buffer[1])) << 12) | (((u32)(buffer[2])) << 4) | ((u32)buffer[3] >> 4));
-			s32 rawTemp = (s32)((((u32)(buffer[4])) << 12) | (((u32)(buffer[5])) << 4) | ((u32)buffer[6] >> 4));
-			temp = bmp280CompensateT(rawTemp)/100.0f;		
-			pressure = bmp280CompensateP(rawPressure)/25600.0f;			
 
-			//pressureFilter(&pressure, &slowSensorData.baro.pressure);	
-			slowSensorData.baro.pressure = pressure;
-			slowSensorData.baro.temperature = (float)temp;	/*单位度*/
-			slowSensorData.baro.asl = bmp280PressureToAltitude(&pressure) * 100.f;	/*转换成海拔*/
-		//}
-	}
-}
 /*处理磁力计数据*/
 void sensorsMagCalibrationStart(void)
 {
@@ -512,7 +490,7 @@ bool sensorsMagCalibrationFinish(void)
 	configParam.magCalibration.fieldMagnitude = fieldMagnitude / 3.0f;
 	configParam.magCalibration.valid = true;
 	magCalibrationActive = false;
-	saveConfigAndNotify();
+	saveConfigRequest();
 	return true;
 }
 static Axis3f sensorsMapMagToBody(const Axis3f raw)
@@ -754,7 +732,7 @@ static void sensorsTaskSlow(void *param)
 {
 	(void)param;
 	TickType_t lastWakeTime = xTaskGetTickCount();
-	uint8_t slowTick = 0;
+	
 
 	while (1)
 	{
@@ -771,19 +749,21 @@ static void sensorsTaskSlow(void *param)
 		
 		if (isBaroPresent)
 		{
-			if (baroType == BMP280 && (slowTick & 0x01) == 0) //50Hz
+			float pressure;
+			float temperature;
+			float asl;
+			if (baroType == BMP280)
 			{
-				i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_STAT_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-				i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
-				processBarometerMeasurements(&(baroBuffer[0]));
-				xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
+				if (BMP280GetData(&pressure, &temperature, &asl))
+				{
+					slowSensorData.baro.pressure = pressure;
+					slowSensorData.baro.temperature = temperature;
+					slowSensorData.baro.asl = asl * 100.0f;
+					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
+				}
 			}
 			else if (baroType == SPL06)
 			{
-				float pressure;
-				float temperature;
-				float asl;
-
 				if (SPL06GetData(&pressure, &temperature, &asl))
 				{
 					slowSensorData.baro.pressure = pressure;
@@ -794,7 +774,7 @@ static void sensorsTaskSlow(void *param)
 			}
 		}
 
-		slowTick++;
+		
 		vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(10));	//延时10ms，100Hz
 	}
 }
