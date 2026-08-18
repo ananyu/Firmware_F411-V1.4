@@ -66,14 +66,14 @@ typedef struct
 	pidParam_t pidAngle;	/*角度PID*/	
 	pidParam_t pidRate;		/*角速度PID*/	
 	pidParamPos_t pidPos;	/*位置PID*/
-//	accBias_t accBias;		/*加速度校准值*/
-//	magBias_t magBias;		/*磁力计校准值*/
+	// accBias_t accBias;		/*加速度校准值*/
+	// magBias_t magBias;		/*磁力计校准值*/
 	float trimP;			/*pitch微调*/
 	float trimR;			/*roll微调*/
 	u16 thrustBase;			/*油门基础值*/
 	u8 cksum;				/*校验*/
 } configParam_t;
-
+ 
 
 extern configParam_t configParam;
 
@@ -81,9 +81,9 @@ void configParamInit(void);	/*参数配置初始化*/
 void configParamTask(void* param);	/*参数配置任务*/
 bool configParamTest(void);
 
-void configParamGiveSemaphore(void);
 void resetConfigParamPID(void);
-void saveConfigAndNotify(void);
+void saveConfigRequest(void);
+void configParamCommitIfSafe(void);
 
 #endif /*__CONFIG_PARAM_H */
 

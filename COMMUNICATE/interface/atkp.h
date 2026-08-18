@@ -120,5 +120,6 @@ void atkpRxAnlTask(void *param);
 void atkpInit(void);
 bool atkpReceivePacketBlocking(atkp_t *p);
 
+bool atkpIsFlightUnlocked(void);
 #endif /*ATKP_H*/
 

@@ -654,3 +654,8 @@ bool atkpReceivePacketBlocking(atkp_t *p)
 	ASSERT(p->dataLen <= ATKP_MAX_DATA_SIZE);
 	return xQueueSend(rxQueue, p, portMAX_DELAY);	
 }
+
+bool atkpIsFlightUnlocked(void)
+{
+	return flyable;
+}

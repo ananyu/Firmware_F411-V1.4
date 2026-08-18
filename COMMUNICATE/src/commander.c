@@ -132,8 +132,13 @@ static void ctrlDataUpdate(void)
 		ctrlValLpf.roll += (ctrlVal.roll - ctrlValLpf.roll) * lpfVal;
 		ctrlValLpf.yaw += (ctrlVal.yaw - ctrlValLpf.yaw) * lpfVal;
 		
-		configParam.trimP = ctrlVal.trimPitch;	/*更新微调值*/
-		configParam.trimR = ctrlVal.trimRoll;
+		if (configParam.trimP != ctrlVal.trimPitch ||
+			configParam.trimR != ctrlVal.trimRoll)
+		{
+			configParam.trimP = ctrlVal.trimPitch;
+			configParam.trimR = ctrlVal.trimRoll;
+			saveConfigRequest();
+		}
 		
 		if (ctrlValLpf.thrust < MIN_THRUST)
 			ctrlValLpf.thrust = 0;	

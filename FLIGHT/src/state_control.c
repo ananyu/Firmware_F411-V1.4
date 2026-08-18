@@ -4,6 +4,7 @@
 #include "attitude_pid.h"
 #include "position_pid.h"
 #include "config_param.h"
+#include "atkp.h"
 
 /********************************************************************************	 
  * 本程序只供学习使用，未经作者许可，不得用于其它任何用途
@@ -112,7 +113,7 @@ void stateControl(control_t *control, sensorData_t *sensors,
 
 	control->thrust = actualThrust;	
 	
-	if (control->thrust < 5.f)	//实际推力小于5%时，认为是地面状态，复位PID，防止积分风up
+	if (!atkpIsFlightUnlocked() && control->thrust < 5.f)	//实际推力小于5%时，认为是地面状态，复位PID，防止积分风up
 	{			
 		control->roll = 0;
 		control->pitch = 0;
@@ -126,7 +127,7 @@ void stateControl(control_t *control, sensorData_t *sensors,
 		if(cnt++ > 1500)
 		{
 			cnt = 0;
-			configParamGiveSemaphore();
+			configParamCommitIfSafe();
 		}
 	}else
 	{
