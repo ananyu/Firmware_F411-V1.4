@@ -134,6 +134,7 @@ static configParam_t configParamDefault=
 static u32 lenth = 0;
 static bool isInit = false;
 static bool isConfigParamOK = false;
+static volatile bool savePending = false;
 
 static SemaphoreHandle_t  xSemaphore = NULL;
 
@@ -142,7 +143,7 @@ static u8 configParamCksum(configParam_t* data)
 {
 	int i;
 	u8 cksum=0;	
-	u8* c = (u8*)data;  	
+	u8* c = (u8*)data;  	/*将结构体指针转换为u8指针，方便按字节计算校验和*/
 	size_t len=sizeof(configParam_t);
 
 	for (i=0; i<len; i++)
@@ -157,7 +158,7 @@ void configParamInit(void)	/*参数配置初始化*/
 	if(isInit) return;
 	
 	lenth=sizeof(configParam);
-	lenth=lenth/4+(lenth%4 ? 1:0);
+	lenth=lenth/4+(lenth%4 ? 1:0);//计算需要写入的字数，向上取整,flash每次写入四个字节
 
 	STMFLASH_Read(CONFIG_PARAM_ADDR, (u32 *)&configParam, lenth);
 	
@@ -184,7 +185,7 @@ void configParamInit(void)	/*参数配置初始化*/
 		configParam.cksum = configParamCksum(&configParam);				/*计算校验值*/
 		STMFLASH_Write(CONFIG_PARAM_ADDR,(u32 *)&configParam, lenth);	/*写入stm32 flash*/
 		isConfigParamOK=true;
-	}	
+	}
 	
 	xSemaphore = xSemaphoreCreateBinary();
 	
@@ -198,6 +199,10 @@ void configParamTask(void* param)
 	while(1) 
 	{	
 		xSemaphoreTake(xSemaphore, portMAX_DELAY);
+		if (!savePending)
+		{
+			continue;
+		}
 		cksum = configParamCksum(&configParam);		/*数据校验*/
 		
 		if(configParam.cksum != cksum)	
@@ -207,6 +212,7 @@ void configParamTask(void* param)
 			STMFLASH_Write(CONFIG_PARAM_ADDR,(u32 *)&configParam, lenth);	/*写入stm32 flash*/
 			watchdogInit(WATCHDOG_RESET_MS);		/*重新设置看门狗*/
 		}						
+		savePending = false;
 	}
 }
 
@@ -215,24 +221,23 @@ bool configParamTest(void)
 	return isInit;
 }
 
-void configParamGiveSemaphore(void)
-{
-	xSemaphoreGive(xSemaphore);		
-}
-
 void resetConfigParamPID(void)
 {
 	configParam.pidAngle = configParamDefault.pidAngle;
 	configParam.pidRate = configParamDefault.pidRate;
 	configParam.pidPos = configParamDefault.pidPos;
+	saveConfigRequest();
 }
 
-void saveConfigAndNotify(void)
+void saveConfigRequest(void)
 {
-	u8 cksum = configParamCksum(&configParam);		/*数据校验*/
-	if(configParam.cksum != cksum)	
+	savePending = true;
+}
+
+void configParamCommitIfSafe(void)
+{
+	if (savePending && xSemaphore != NULL)
 	{
-		configParam.cksum = cksum;	/*数据校验*/				
-		STMFLASH_Write(CONFIG_PARAM_ADDR,(u32 *)&configParam, lenth);	/*写入stm32 flash*/
+		xSemaphoreGive(xSemaphore);
 	}
 }

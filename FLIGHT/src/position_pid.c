@@ -89,8 +89,11 @@ static void velocityController(float* thrust, attitude_t *attitude,
 			if(altholdCount > 1000)
 			{
 				altholdCount = 0;
-				if(fabs(configParam.thrustBase - thrustLpf) > 1000.f)	/*更新基础油门值*/
+				if(fabs(configParam.thrustBase - thrustLpf) > 1000.0f)
+				{
 					configParam.thrustBase = thrustLpf;
+					saveConfigRequest();
+				}
 			}
 		}else
 		{
@@ -161,6 +164,7 @@ void positionPIDwriteToConfigParam(void)
 	configParam.pidPos.z.kp  = pidZ.kp;
 	configParam.pidPos.z.ki  = pidZ.ki;
 	configParam.pidPos.z.kd  = pidZ.kd;
+	saveConfigRequest();
 }
 
 

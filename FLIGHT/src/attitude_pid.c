@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include "pid.h"
 #include "sensors.h"
+#include "config_param.h"
 #include "attitude_pid.h"
 
 /********************************************************************************	 
@@ -135,5 +136,6 @@ void attitudePIDwriteToConfigParam(void)
 	configParam.pidRate.yaw.kp = pidRateYaw.kp;
 	configParam.pidRate.yaw.ki = pidRateYaw.ki;
 	configParam.pidRate.yaw.kd = pidRateYaw.kd;
+	saveConfigRequest();
 }
 
