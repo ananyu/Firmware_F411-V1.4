@@ -576,6 +576,11 @@
               <FilePath>..\EXP_MODULES\src\optical_flow.c</FilePath>
             </File>
             <File>
+              <FileName>pmw3901.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\EXP_MODULES\src\pmw3901.c</FilePath>
+            </File>
+            <File>
               <FileName>vl53lxx.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\EXP_MODULES\src\vl53lxx.c</FilePath>
