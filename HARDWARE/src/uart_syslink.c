@@ -100,10 +100,13 @@ void uartslkInit(void)	/*串口初始化*/
 	RCC_AHB1PeriphClockCmd(UARTSLK_GPIO_PERIF, ENABLE);
 	ENABLE_UARTSLK_RCC(UARTSLK_PERIF, ENABLE);
 
+	GPIO_StructInit(&GPIO_InitStructure);
 	/* 配置USART Rx为浮空输入*/
 	GPIO_InitStructure.GPIO_Pin   = UARTSLK_GPIO_RX_PIN;
 	GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_AF;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
 	GPIO_Init(UARTSLK_GPIO_PORT, &GPIO_InitStructure);
 
 	/* 配置USART Tx 复用功能输出*/
@@ -141,13 +144,15 @@ void uartslkInit(void)	/*串口初始化*/
 	/*配置XEN引脚(NRF流控制)*/
 	RCC_AHB1PeriphClockCmd(UARTSLK_TXEN_PERIF, ENABLE);
 
-	memset(&GPIO_InitStructure, 0,sizeof(GPIO_InitStructure));
+	//memset(&GPIO_InitStructure, 0,sizeof(GPIO_InitStructure));
+	GPIO_StructInit(&GPIO_InitStructure);
 	GPIO_InitStructure.GPIO_Pin = UARTSLK_TXEN_PIN;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
 	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
 	GPIO_Init(UARTSLK_TXEN_PORT, &GPIO_InitStructure);
 
 	/*PA0外部中断配置*/
+	EXTI_StructInit(&EXTI_InitStructure);
 	EXTI_InitStructure.EXTI_Line = UARTSLK_TXEN_EXTI;
 	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
 	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;
