@@ -685,7 +685,9 @@ static void prvAddNewTaskToReadyList( TCB_t *pxNewTCB ) PRIVILEGED_FUNCTION;
 
 		/* If the stack grows down then allocate the stack then the TCB so the stack
 		does not grow into the TCB.  Likewise if the stack grows up then allocate
-		the TCB then the stack. */
+		the TCB then the stack.
+		如果栈向下增长，则先分配栈空间，再分配任务控制块（TCB），防止栈空间蔓延至任务控制块。
+		同理，如果栈向上增长，则先分配任务控制块（TCB），再分配栈空间。 */ 
 		#if( portSTACK_GROWTH > 0 )
 		{
 			/* Allocate space for the TCB.  Where the memory comes from depends on

@@ -96,7 +96,8 @@ extern "C" {
  * Type by which tasks are referenced.  For example, a call to xTaskCreate
  * returns (via a pointer parameter) an TaskHandle_t variable that can then
  * be used as a parameter to vTaskDelete to delete the task.
- *
+ *任务的引用类型。例如，调用xTaskCreate函数时，会通过指针参数返回一个TaskHandle_t类型变量，
+ 后续可将该变量作为vTaskDelete的入参，用以删除该任务。
  * \defgroup TaskHandle_t TaskHandle_t
  * \ingroup Tasks
  */
@@ -105,6 +106,7 @@ typedef void * TaskHandle_t;
 /*
  * Defines the prototype to which the application task hook function must
  * conform.
+ * 任务钩函数的原型。应用必须实现的函数，用于在任务运行时执行自定义操作。
  */
 typedef BaseType_t (*TaskHookFunction_t)( void * );
 
@@ -711,11 +713,13 @@ void vTaskDelay( const TickType_t xTicksToDelay ) PRIVILEGED_FUNCTION;
  * calling vTaskDelay () may not be fixed [the task may take a different path though the
  * code between calls, or may get interrupted or preempted a different number of times
  * each time it executes].
- *
+ *该函数与vTaskDelay()在一个重要方面有所不同：vTaskDelay()会让任务从调用vTaskDelay()的时刻开始，阻塞指定数量的系统节拍。
+ 因此仅依靠vTaskDelay()难以生成固定的执行频率，因为任务开始执行到该任务调用vTaskDelay()之间的时间并不固定（任务在两次调用之间可能走不同的代码分支，
+ 或者每次执行时被中断、抢占的次数不一样）。
  * Whereas vTaskDelay () specifies a wake time relative to the time at which the function
  * is called, vTaskDelayUntil () specifies the absolute (exact) time at which it wishes to
  * unblock.
- *
+ *vTaskDelay() 指定的是相对于函数调用时刻的唤醒时间，而 vTaskDelayUntil() 指定的是任务希望解除阻塞的绝对（确切）时间。
  * The constant portTICK_PERIOD_MS can be used to calculate real time from the tick
  * rate - with the resolution of one tick period.
  *

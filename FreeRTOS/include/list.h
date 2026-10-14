@@ -90,7 +90,23 @@
  * effectively a two way link between the object containing the list item and
  * the list item itself.
  *
+ * * 这是调度器所使用的链表实现。虽然它为调度器的需求做了大量定制，
+ * 但同样可以供应用程序代码使用。
  *
+ * 链表（list_t）只能存放指向链表项（ListItem_t）的指针。每个 ListItem_t
+ * 都带有一个数值（xItemValue）。大多数情况下，链表按该项数值排序。
+ *
+ * 链表在创建时就自带一个链表项。它的值是可存储的最大值（portMAX_DELAY），
+ * 因此它永远位于链表末尾，充当一个标记（即哨兵节点）。链表成员 pxHead
+ * 始终指向这个标记——即使它在链表尾部。这是因为尾节点里存着一个
+ * "回绕指针"，指向真正的链表头部。
+ *
+ * 除了自身的数值外，每个链表项还包含：
+ *   - 指向链表中下一个项的指针（pxNext）
+ *   - 指向它所属链表的指针（pxContainer）
+ *   - 指回拥有它的那个对象的指针
+ * 后两个指针是为了高效操作链表而设。实际上，"包含链表项的对象"
+ * 与"链表项本身"之间构成了一条双向链路。
  * \page ListIntroduction List Implementation
  * \ingroup FreeRTOSIntro
  */
@@ -129,6 +145,29 @@
  * To use volatile list structure members then add the following line to
  * FreeRTOSConfig.h (without the quotes):
  * "#define configLIST_VOLATILE volatile"
+ *  * 链表结构体的成员会在中断内部被修改，因此按理说应该声明为 volatile。
+ * 然而，它们的修改方式在功能上都是原子的（在临界区内，或在调度器
+ * 挂起期间进行），并且要么以引用（指针）方式传给函数，要么通过一个
+ * volatile 变量来索引访问。因此，在迄今为止测试过的所有使用场景中，
+ * 省略 volatile 限定符可以带来适度的性能提升，而不会影响功能的正确性。
+ * 我们已经检查了 IAR、ARM（Keil）和 GCC 三种编译器在各自开到最高
+ * 优化等级时生成的汇编指令，确认其行为符合预期。
+ *
+ * 话虽如此，随着编译器技术的进步，尤其是当使用激进的跨模块优化时
+ * （这种使用场景尚未被大量验证），volatile 限定符仍有可能是正确编译
+ * 所必需的。可以预见的是：如果编译器因为在链表结构体成员上没有
+ * volatile 限定符、且又开启了激进跨模块优化的情况下，认定某段代码
+ * 无用而将其删除，其后果将是调度器彻底且明显地失效。
+ *
+ * 如果真的遇到这种情况，只需在 FreeRTOSConfig.h 中把 configLIST_VOLATILE
+ * 定义为 volatile，即可在链表结构体的相关位置插入 volatile 限定符
+ * （具体做法见本注释块末尾的示例）。
+ * 如果没有定义 configLIST_VOLATILE，下面的预处理指令就会把它
+ * 定义为空，完全等效于没加 volatile。
+ *
+ * 若想使用 volatile 修饰链表结构体成员，只需在 FreeRTOSConfig.h 中
+ * 加入下面这一行（不带引号）：
+ * "#define configLIST_VOLATILE volatile"
  */
 #ifndef configLIST_VOLATILE
 	#define configLIST_VOLATILE
@@ -142,7 +181,12 @@ extern "C" {
 then check that the known values do not get corrupted during the execution of
 the application.   These may catch the list data structures being overwritten in
 memory.  They will not catch data errors caused by incorrect configuration or
-use of FreeRTOS.*/
+use of FreeRTOS.
+ 这些宏用于在链表结构体中预先放置已知的值（"检查字节"），
+然后在应用程序运行过程中检查这些已知值是否被破坏。
+这可以捕获链表数据结构被内存越界覆盖的情况。
+但它们无法捕获由 FreeRTOS 配置错误或使用不当造成的数据错误。
+*/
 #if( configUSE_LIST_DATA_INTEGRITY_CHECK_BYTES == 0 )
 	/* Define the macros to do nothing. */
 	#define listFIRST_LIST_ITEM_INTEGRITY_CHECK_VALUE
@@ -314,10 +358,25 @@ typedef struct xLIST
  *
  * \page listGET_OWNER_OF_NEXT_ENTRY listGET_OWNER_OF_NEXT_ENTRY
  * \ingroup LinkedList
+ *  * 用于获取链表中"下一个节点"所有者的访问函数（宏）。
+ *
+ * 链表成员 pxIndex 用来在链表中行走。调用 listGET_OWNER_OF_NEXT_ENTRY
+ * 会把 pxIndex 递增到链表中的下一个节点，并返回该节点的 pvOwner。
+ * 因此，多次调用这个宏，就可以走遍链表中包含的每一个节点。
+ *
+ * 链表项的 pvOwner 参数是指向"拥有这个链表项的对象"的指针。
+ * 在调度器中，这通常就是一个任务控制块（TCB）。
+ * pvOwner 实际上在"链表项"与"它的所有者"之间建立了一条双向链路。
+ *
+ * @param pxTCB   输出参数：被设置为下一个链表项所有者的地址。
+ * @param pxList  从这条链表中取下一个节点的所有者。
+ *
+ * \page listGET_OWNER_OF_NEXT_ENTRY listGET_OWNER_OF_NEXT_ENTRY
+ * \ingroup LinkedList
  */
 #define listGET_OWNER_OF_NEXT_ENTRY( pxTCB, pxList )										\
 {																							\
-List_t * const pxConstList = ( pxList );													\
+    List_t * const pxConstList = ( pxList );													\
 	/* Increment the index to the next item and return the item, ensuring */				\
 	/* we don't return the marker used at the end of the list.  */							\
 	( pxConstList )->pxIndex = ( pxConstList )->pxIndex->pxNext;							\
@@ -344,6 +403,15 @@ List_t * const pxConstList = ( pxList );													\
  *
  * \page listGET_OWNER_OF_HEAD_ENTRY listGET_OWNER_OF_HEAD_ENTRY
  * \ingroup LinkedList
+ *  * 用于获取链表中"第一个节点"的所有者的访问函数（宏）。
+ * 链表通常按节点的数值升序排列。
+ *
+ * 这个宏返回链表中第一个节点的 pvOwner 成员。
+ * 链表项的 pvOwner 是指向"拥有该链表项的对象"的指针。
+ * 在调度器中，这通常就是一个任务控制块（TCB）。
+ * pvOwner 实际上在"链表项"与"它的所有者"之间建立了一条双向链路。
+ *
+ * @param pxList  要从中取出队头节点所有者的链表。
  */
 #define listGET_OWNER_OF_HEAD_ENTRY( pxList )  ( (&( ( pxList )->xListEnd ))->pxNext->pvOwner )
 
@@ -355,6 +423,13 @@ List_t * const pxConstList = ( pxList );													\
  * @param pxList The list we want to know if the list item is within.
  * @param pxListItem The list item we want to know if is in the list.
  * @return pdTRUE if the list item is in the list, otherwise pdFALSE.
+ *  * 检查某个链表项是否位于某条链表中。链表项内部维护着一个
+ * "容器"指针（pvContainer），指向它当前所在的链表。
+ * 这个宏所做的全部事情，就是比较容器指针和给定的链表是否一致。
+ *
+ * @param pxList     要确认"链表项是否在其中"的那条链表。
+ * @param pxListItem 要确认"是否在这条链表里"的那个链表项。
+ * @return 如果链表项在该链表中，返回 pdTRUE，否则返回 pdFALSE。
  */
 #define listIS_CONTAINED_WITHIN( pxList, pxListItem ) ( ( BaseType_t ) ( ( pxListItem )->pvContainer == ( void * ) ( pxList ) ) )
 
@@ -370,6 +445,9 @@ List_t * const pxConstList = ( pxList );													\
  * This provides a crude means of knowing if a list has been initialised, as
  * pxList->xListEnd.xItemValue is set to portMAX_DELAY by the vListInitialise()
  * function.
+ * 这提供了一种比较"粗糙"的手段来判断链表是否已被初始化——
+ * 因为 vListInitialise() 函数会把 pxList->xListEnd.xItemValue 设置为 portMAX_DELAY。
+
  */
 #define listLIST_IS_INITIALISED( pxList ) ( ( pxList )->xListEnd.xItemValue == portMAX_DELAY )
 
@@ -379,7 +457,10 @@ List_t * const pxConstList = ( pxList );													\
  * marker to the back of the list.
  *
  * @param pxList Pointer to the list being initialised.
+ * * 在使用链表之前必须调用！它初始化链表结构体的所有成员，
+ * 并把 xListEnd 节点插入链表，作为链表尾部的标记（哨兵）。
  *
+ * @param pxList  指向待初始化链表的指针。
  * \page vListInitialise vListInitialise
  * \ingroup LinkedList
  */
@@ -424,7 +505,19 @@ void vListInsert( List_t * const pxList, ListItem_t * const pxNewListItem ) PRIV
  * @param pxList The list into which the item is to be inserted.
  *
  * @param pxNewListItem The list item to be inserted into the list.
+ * * 将一个链表项插入链表。插入位置经过精心安排：
+ * 在反复调用 listGET_OWNER_OF_NEXT_ENTRY 进行轮转时，
+ * 新节点将是这条链上"最后被轮到"的那个。
  *
+ * 链表成员 pxIndex 用于在链表中行走。调用 listGET_OWNER_OF_NEXT_ENTRY
+ * 会把 pxIndex 递增到链表中的下一个节点。用 vListInsertEnd 插入节点，
+ * 实际上是把节点放到 pxIndex 当前所指位置的"前面"（即上一站）。
+ * 这意味着：轮转时，链表中其他所有节点都会先被
+ * listGET_OWNER_OF_NEXT_ENTRY 返回，之后才轮到新插入的节点。
+ *
+ * @param pxList         要插入节点的那条链表。
+ *
+ * @param pxNewListItem  待插入的链表项。
  * \page vListInsertEnd vListInsertEnd
  * \ingroup LinkedList
  */
