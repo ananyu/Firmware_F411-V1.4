@@ -4,8 +4,6 @@
 #include "config.h"
 #include "config_param.h"
 #include "watchdog.h"
-#include "stmflash.h"
-#include "delay.h"
 
 /*FreeRTOS相关头文件*/
 #include "FreeRTOS.h"
@@ -27,14 +25,10 @@
 ********************************************************************************/
 
 
-#define VERSION 13	/*13 表示V1.3*/
-
 configParam_t configParam;
 
 static configParam_t configParamDefault=
 {
-	.version = VERSION,		/*软件版本号*/
-
 	.pidAngle=	/*角度PID*/
 	{	
 		.roll=
@@ -123,87 +117,78 @@ static configParam_t configParamDefault=
 	.thrustBase=34000,	/*定高油门基础值*/
 };
 
-static u32 lenth = 0;
 static bool isInit = false;
-static bool isConfigParamOK = false;
 static volatile bool savePending = false;
 
 static SemaphoreHandle_t  xSemaphore = NULL;
 
-
-static u8 configParamCksum(configParam_t* data)
+/* Read one KV record into buf; fall back to the built-in default when the
+ * key is absent (fresh KV) or the stored length no longer matches. */
+static bool kvReadWithDefault(u16 key, void *buf, u16 expectedLen, const void *defaultVal)
 {
-	int i;
-	u8 cksum=0;	
-	u8* c = (u8*)data;  	/*将结构体指针转换为u8指针，方便按字节计算校验和*/
-	size_t len=sizeof(configParam_t);
+	u16 len = expectedLen;
 
-	for (i=0; i<len; i++)
-		cksum += *(c++);
-	cksum-=data->cksum;
-	
-	return cksum;
+	if (kv_get(key, buf, &len) && len == expectedLen)
+	{
+		return true;
+	}
+	memcpy(buf, defaultVal, expectedLen);
+	return false;
 }
 
 void configParamInit(void)	/*参数配置初始化*/
 {
-	if(isInit) return;
-	
-	lenth=sizeof(configParam);
-	lenth=lenth/4+(lenth%4 ? 1:0);//计算需要写入的字数，向上取整,flash每次写入四个字节
+	bool ok;
 
-	STMFLASH_Read(CONFIG_PARAM_ADDR, (u32 *)&configParam, lenth);
-	
-	if(configParam.version == VERSION)	/*版本正确*/
+	if(isInit) return;
+
+	ok = kv_init();
+
+	if (ok)
 	{
-		if(configParamCksum(&configParam) == configParam.cksum)	/*校验正确*/
-		{
-			printf("Version V%1.1f check [OK]\r\n", configParam.version / 10.0f);
-			isConfigParamOK = true;
-		} else
-		{
-			printf("Version check [FAIL]\r\n");
-			isConfigParamOK = false;
-		}
-	}	
-	else	/*版本更新*/
-	{
-		isConfigParamOK = false;
+		ok &= kvReadWithDefault(KV_PID_ANGLE,   &configParam.pidAngle,   sizeof(configParam.pidAngle),   &configParamDefault.pidAngle);
+		ok &= kvReadWithDefault(KV_PID_RATE,    &configParam.pidRate,    sizeof(configParam.pidRate),    &configParamDefault.pidRate);
+		/* pidPos (72B) is split into velocity/position halves; both halves
+		 * are contiguous pidInit_t[3] blocks inside the struct. */
+		ok &= kvReadWithDefault(KV_PID_POS_VEL, &configParam.pidPos.vx,  sizeof(pidInit_t) * 3U,         &configParamDefault.pidPos.vx);
+		ok &= kvReadWithDefault(KV_PID_POS_POS, &configParam.pidPos.x,   sizeof(pidInit_t) * 3U,         &configParamDefault.pidPos.x);
+		ok &= kvReadWithDefault(KV_TRIM_P,      &configParam.trimP,      sizeof(configParam.trimP),      &configParamDefault.trimP);
+		ok &= kvReadWithDefault(KV_TRIM_R,      &configParam.trimR,      sizeof(configParam.trimR),      &configParamDefault.trimR);
+		ok &= kvReadWithDefault(KV_THRUST_BASE, &configParam.thrustBase, sizeof(configParam.thrustBase), &configParamDefault.thrustBase);
 	}
-	
-	if(isConfigParamOK == false)	/*配置参数错误，写入默认参数*/
+
+	if (!ok)
 	{
+		/* KV mount failed or some key unreadable: fly on defaults. */
 		memcpy((u8 *)&configParam, (u8 *)&configParamDefault, sizeof(configParam));
-		configParam.cksum = configParamCksum(&configParam);				/*计算校验值*/
-		STMFLASH_Write(CONFIG_PARAM_ADDR,(u32 *)&configParam, lenth);	/*写入stm32 flash*/
-		isConfigParamOK=true;
 	}
-	
+
 	xSemaphore = xSemaphoreCreateBinary();
-	
+
 	isInit=true;
 }
 
 void configParamTask(void* param)
 {
-	u8 cksum = 0;
-	
-	while(1) 
-	{	
+	while(1)
+	{
 		xSemaphoreTake(xSemaphore, portMAX_DELAY);
 		if (!savePending)
 		{
 			continue;
 		}
-		cksum = configParamCksum(&configParam);		/*数据校验*/
-		
-		if(configParam.cksum != cksum)	
-		{
-			configParam.cksum = cksum;	/*数据校验*/
-			watchdogInit(500);			/*擦除时间比较长，看门狗时间设置大一些*/					
-			STMFLASH_Write(CONFIG_PARAM_ADDR,(u32 *)&configParam, lenth);	/*写入stm32 flash*/
-			watchdogInit(WATCHDOG_RESET_MS);		/*重新设置看门狗*/
-		}						
+
+		watchdogReset();	/* GC may erase a 16KB sector (~300ms) */
+
+		/* per-key append; KV dedup skips fields that did not change */
+		kv_set(KV_PID_ANGLE,   &configParam.pidAngle,   sizeof(configParam.pidAngle));
+		kv_set(KV_PID_RATE,    &configParam.pidRate,    sizeof(configParam.pidRate));
+		kv_set(KV_PID_POS_VEL, &configParam.pidPos.vx,  sizeof(pidInit_t) * 3U);
+		kv_set(KV_PID_POS_POS, &configParam.pidPos.x,   sizeof(pidInit_t) * 3U);
+		kv_set(KV_TRIM_P,      &configParam.trimP,      sizeof(configParam.trimP));
+		kv_set(KV_TRIM_R,      &configParam.trimR,      sizeof(configParam.trimR));
+		kv_set(KV_THRUST_BASE, &configParam.thrustBase, sizeof(configParam.thrustBase));
+
 		savePending = false;
 	}
 }

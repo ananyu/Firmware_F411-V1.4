@@ -17,9 +17,9 @@
  *                 - now: stock Bootloader_F411, jump target moved to FM_APP_LINK_BASE
  *                 - later: MCUBoot (grows into S1, 32K total; flashing MCUBoot
  *                   erases S1 -- legacy params are abandoned, accepted)
- *   S1     16K  legacy config_param area (stock param storage, stays in use
- *                 until the new KV store replaces it; NO data migration --
- *                 KV starts from built-in defaults)
+ *   S1     16K  reserved / abandoned (legacy config_param area; replaced
+ *                 by the KV store in S2/S3, no data migration -- first
+ *                 boot with KV firmware starts from built-in defaults)
  *   S2     16K  KV store page A
  *   S3     16K  KV store page B  (dual-page rotation: wear leveling + atomic commit)
  *   S4     64K  blackbox (flight log ring buffer)

@@ -2,6 +2,7 @@
 #define __CONFIG_PARAM_H
 #include "sys.h"
 #include <stdbool.h>
+#include "kv_store.h"
 
 /********************************************************************************	 
  * 本程序只供学习使用，未经作者许可，不得用于其它任何用途
@@ -62,7 +63,6 @@ typedef struct
 
 typedef struct	
 {
-	u8 version;				/*软件版本号*/
 	pidParam_t pidAngle;	/*角度PID*/	
 	pidParam_t pidRate;		/*角速度PID*/	
 	pidParamPos_t pidPos;	/*位置PID*/
@@ -71,8 +71,19 @@ typedef struct
 	float trimP;			/*pitch微调*/
 	float trimR;			/*roll微调*/
 	u16 thrustBase;			/*油门基础值*/
-	u8 cksum;				/*校验*/
 } configParam_t;
+
+/* KV keys: one record per parameter field (namespace 0x00 = flight params).
+ * KV records carry their own CRC16, so version/cksum fields are gone.
+ * pidParamPos_t (72B) exceeds KV_VALUE_MAX_LEN (64B), so it is stored as
+ * two records: velocity half (vx/vy/vz) and position half (x/y/z). */
+#define KV_PID_ANGLE      (KV_NS_PARAM | 0x01U)
+#define KV_PID_RATE       (KV_NS_PARAM | 0x02U)
+#define KV_PID_POS_VEL    (KV_NS_PARAM | 0x03U)
+#define KV_PID_POS_POS    (KV_NS_PARAM | 0x04U)
+#define KV_TRIM_P         (KV_NS_PARAM | 0x05U)
+#define KV_TRIM_R         (KV_NS_PARAM | 0x06U)
+#define KV_THRUST_BASE    (KV_NS_PARAM | 0x07U)
  
 
 extern configParam_t configParam;

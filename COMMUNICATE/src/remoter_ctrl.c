@@ -33,6 +33,10 @@
  * 版本V1.3 增加上电校准通过后上传微调信息。
 ********************************************************************************/
 
+/* firmware version reported to the ground station (was configParam.version;
+ * KV store has no version field -- migration is per-key default fallback) */
+#define FIRMWARE_VERSION	13	/* 13 = V1.3 */
+
 static ctrlVal_t remoterCtrl;/*发送到commander姿态控制数据*/
 static MiniFlyMsg_t msg;
 static u8 reSendTimes = 3;	/*微调重发次数*/
@@ -40,7 +44,7 @@ static u8 reSendTimes = 3;	/*微调重发次数*/
 /*返回四轴信息*/
 void sendMsgACK(void)
 {
-	msg.version = configParam.version;
+	msg.version = FIRMWARE_VERSION;
 	msg.mpu_selfTest = getIsMPU9250Present();
 	msg.baro_slfTest = getIsBaroPresent();
 	msg.isCanFly = getIsCalibrated();

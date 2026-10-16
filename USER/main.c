@@ -44,7 +44,7 @@ void startTask(void *arg)
     xTaskCreate(atkpTxTask, "ATKP_TX", 150, NULL, 3, NULL);				/*创建atkp发送任务任务*/
     xTaskCreate(atkpRxAnlTask, "ATKP_RX_ANL", 300, NULL, 6, NULL);		/*创建atkp解析任务*/
 
-    xTaskCreate(configParamTask, "CONFIG_TASK", 150, NULL, 1, NULL);	/*创建参数配置任务*/
+    xTaskCreate(configParamTask, "CONFIG_TASK", 150, NULL, 2, NULL);	/*创建参数配置任务*/
 
     xTaskCreate(pmTask, "PWRMGNT", 150, NULL, 2, NULL);					/*创建电源管理任务*/
 
