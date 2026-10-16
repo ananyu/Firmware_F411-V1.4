@@ -20,7 +20,7 @@
 #define CONFIG_PARAM_SIZE	(16*1024)
 
 #define CONFIG_PARAM_ADDR 	(FLASH_BASE + BOOTLOADER_SIZE)	/*16K bootloader*/
-#define FIRMWARE_START_ADDR (FLASH_BASE + BOOTLOADER_SIZE + CONFIG_PARAM_SIZE)	/*16K bootloader+ 16 模拟eeprom*/
+#define FIRMWARE_START_ADDR ((u32)0x08020200)	/*app link base: slot0 (S5) + 512B image header. VTOR source (nvicInit)*/
 
 
 #define DEG2RAD		0.017453293f	/* 度转弧度 π/180 */

@@ -273,8 +273,8 @@
               </OCR_RVCT3>
               <OCR_RVCT4>
                 <Type>1</Type>
-                <StartAddress>0x8008000</StartAddress>
-                <Size>0x78000</Size>
+                <StartAddress>0x8020200</StartAddress>
+                <Size>0x1fa00</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
@@ -421,6 +421,11 @@
               <FilePath>..\CONFIG\src\config_param.c</FilePath>
             </File>
             <File>
+              <FileName>kv_store.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\CONFIG\src\kv_store.c</FilePath>
+            </File>
+            <File>
               <FileName>config.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\CONFIG\interface\config.h</FilePath>
@@ -429,6 +434,11 @@
               <FileName>config_param.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\CONFIG\interface\config_param.h</FilePath>
+            </File>
+            <File>
+              <FileName>kv_store.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\CONFIG\interface\kv_store.h</FilePath>
             </File>
             <File>
               <FileName>FreeRTOSConfig.h</FileName>
