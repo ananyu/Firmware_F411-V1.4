@@ -27,6 +27,12 @@ USER/BIN/
 # Local Git worktrees
 .worktrees/
 
+# Python cache
+__pycache__/
+
+# Keil CLI build log
+USER/build.log
+
 # OS junk
 Thumbs.db
 Desktop.ini

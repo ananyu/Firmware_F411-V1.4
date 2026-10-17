@@ -64,6 +64,8 @@ typedef enum
 	UP_REMOTER		= 0x50,
 	UP_PRINTF		= 0x51,
 	
+	UP_OTA			= 0x61,
+	
 	UP_USER_DATA1	= 0xF1,
 	UP_USER_DATA2	= 0xF2,
 	UP_USER_DATA3	= 0xF3,
@@ -112,6 +114,7 @@ typedef enum
 	DOWN_RADIO		= 0x40,
 	
 	DOWN_REMOTER	= 0x50,
+	DOWN_OTA		= 0x60,
 }downmsgID_e;
 
 

@@ -82,7 +82,7 @@
           <AfterMake>
             <RunUserProg1>0</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name>fromelf --bin !L -o .\BIN\Firmware_F411_V1.3.bin</UserProg1Name>
+            <UserProg1Name>fromelf --bin !L -o .\BIN\Firmware_F411.bin</UserProg1Name>
             <UserProg2Name></UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
@@ -333,10 +333,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>--preinclude stm32f4xx_conf.h --diag_suppress=767</MiscControls>
+              <MiscControls>--preinclude stm32f4xx_conf.h --diag_suppress=767 --gnu</MiscControls>
               <Define>STM32F411xE,ARM_MATH_CM4,USE_STDPERIPH_DRIVER,USE_USB_OTG_FS</Define>
               <Undefine></Undefine>
-              <IncludePath>..\CORE;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\FWLIB\inc;..\CONFIG\interface;..\HARDWARE\interface;..\FreeRTOS\include;..\FreeRTOS\portable\RVDS\ARM_CM4F;..\USB\STM32_USB_Device_Library\Core\inc;..\USB\STM32_USB_Device_Library\Class\cdc\inc;..\USB\STM32_USB_OTG_Driver\inc;..\USB\USB_APP\interface;..\FLIGHT\interface;..\COMMON\interface;..\COMMUNICATE\interface;..\EXP_MODULES\interface;..\VL53L1X;..\VL53L1X\vl53l1_platform</IncludePath>
+              <IncludePath>..\CORE;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\FWLIB\inc;..\CONFIG\interface;..\HARDWARE\interface;..\FreeRTOS\include;..\FreeRTOS\portable\RVDS\ARM_CM4F;..\USB\STM32_USB_Device_Library\Core\inc;..\USB\STM32_USB_Device_Library\Class\cdc\inc;..\USB\STM32_USB_OTG_Driver\inc;..\USB\USB_APP\interface;..\FLIGHT\interface;..\COMMON\interface;..\COMMUNICATE\interface;..\EXP_MODULES\interface;..\VL53L1X;..\VL53L1X\vl53l1_platform;..\MCUBoot;..\MCUBoot\mcuboot_config;..\MCUBoot\sysflash;..\MCUBoot\flash_map_backend;..\..\mcuboot\boot\bootutil\include;..\..\mcuboot\boot\bootutil\src;..\..\mcuboot\ext\tinycrypt\lib\include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -954,6 +954,46 @@
               <FileName>usblink.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\COMMUNICATE\src\usblink.c</FilePath>
+            </File>
+            <File>
+              <FileName>ota.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\COMMUNICATE\src\ota.c</FilePath>
+            </File>
+            <File>
+              <FileName>ota_uart_bridge.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\COMMUNICATE\src\ota_uart_bridge.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>MCUBOOT</GroupName>
+          <Files>
+            <File>
+              <FileName>flash_map_backend.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\MCUBoot\flash_map_backend\flash_map_backend.c</FilePath>
+            </File>
+            <File>
+              <FileName>bootutil_public.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\mcuboot\boot\bootutil\src\bootutil_public.c</FilePath>
+            </File>
+            <File>
+              <FileName>mcuboot_assert.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\MCUBoot\mcuboot_config\mcuboot_assert.c</FilePath>
+            </File>
+            <File>
+              <FileName>sha256.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\mcuboot\ext\tinycrypt\lib\source\sha256.c</FilePath>
+            </File>
+            <File>
+              <FileName>utils.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\mcuboot\ext\tinycrypt\lib\source\utils.c</FilePath>
             </File>
           </Files>
         </Group>

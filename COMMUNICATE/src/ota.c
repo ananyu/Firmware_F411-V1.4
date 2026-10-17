@@ -1,0 +1,373 @@
+/*
+ * ota.c - OTA download state machine (app side) for MiniFly STM32F411CE.
+ *
+ * Flow: BEGIN (erase slot1, arm) -> DATA* (word-programmed staged writes,
+ * sequential offsets only) -> END (flush, re-hash from flash, check image
+ * header + SHA256 TLV, boot_set_pending(0), ACK, reset into MCUBoot swap).
+ *
+ * Runs in otaTask (prio 4); packets are forwarded from atkpReceiveAnl()
+ * via a small queue so flash erase/program never blocks the rx analysis
+ * task. ACKs go out both on the radio link and on the USART1 bridge.
+ */
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "ota.h"
+#include "radiolink.h"
+#include "atkp.h"
+#include "flash_map.h"
+#include "sysflash.h"
+#include "flash_map_backend.h"
+#include "bootutil/bootutil_public.h"
+#include "bootutil/image.h"
+/* bootutil_public.h defines ASSERT as C-library assert(); the FW uses the
+ * assertFail() variant from debug_assert.h. Pin the FW definition here
+ * (the header guard then makes the later pull via FreeRTOSConfig.h a no-op). */
+#undef ASSERT
+#include "debug_assert.h"
+#include "ota_uart_bridge.h"
+
+#include "stm32f4xx.h"
+#include "stm32f4xx_flash.h"
+#include "stm32f4xx_iwdg.h"
+#include <tinycrypt/sha256.h>
+#include <tinycrypt/constants.h>
+
+/*FreeRTOS*/
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+
+#define OTA_QUEUE_LEN   8
+
+typedef enum
+{
+    OTA_IDLE = 0,
+    OTA_DOWNLOAD
+} otaState_e;
+
+static otaState_e otaState = OTA_IDLE;
+static uint32_t otaTotalSize;
+static uint32_t otaRxOffset;    /* bytes accepted so far (ACKed to host) */
+static uint32_t otaProgOffset;  /* bytes already committed to flash */
+static uint8_t  otaTail[4];     /* staged bytes waiting for a full word */
+static uint8_t  otaTailLen;
+static xQueueHandle otaQueue;
+static bool otaIsInit = false;
+
+static uint32_t otaReadU32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* IWDG relax: prescaler 32 -> 256, reload 0xFFF => ~32 s window.
+ * A 128 KB sector erase can take up to ~4 s; the stock 150 ms budget
+ * would reset the MCU in the middle of BEGIN. */
+static void otaWatchdogRelax(void)
+{
+    IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
+    IWDG_SetPrescaler(IWDG_Prescaler_256);
+    IWDG_SetReload(0xFFF);
+    IWDG_WriteAccessCmd(IWDG_WriteAccess_Disable);
+    IWDG_ReloadCounter();
+}
+
+static bool otaProgramWord(uint32_t addr, uint32_t word)
+{
+    FLASH_Status st;
+    FLASH_Unlock();
+    st = FLASH_ProgramWord(addr, word);
+    FLASH_Lock();
+    return st == FLASH_COMPLETE;
+}
+
+/* Append received bytes to slot1, programming full 32-bit words. */
+static int otaFlashAppend(const uint8_t *data, uint32_t len)
+{
+    while (len--) {
+        otaTail[otaTailLen++] = *data++;
+        otaRxOffset++;
+        if (otaTailLen == 4) {
+            uint32_t word;
+            memcpy(&word, otaTail, 4);
+            if (!otaProgramWord(FM_SLOT1_BASE + otaProgOffset, word)) {
+                return -1;
+            }
+            otaProgOffset += 4;
+            otaTailLen = 0;
+        }
+    }
+    return 0;
+}
+
+/* Flush the staged tail, padding the last word with 0xFF (erased value).
+ * Well-formed images are always word-sized, so this is only a safety net. */
+static int otaFlashFlush(void)
+{
+    if (otaTailLen > 0) {
+        uint32_t word = 0xFFFFFFFF;
+        memcpy(&word, otaTail, otaTailLen);
+        if (!otaProgramWord(FM_SLOT1_BASE + otaProgOffset, word)) {
+            return -1;
+        }
+        otaProgOffset += 4;
+        otaTailLen = 0;
+    }
+    return 0;
+}
+
+static int otaComputeHash(uint32_t len, uint8_t out[IMAGE_HASH_LEN])
+{
+    struct tc_sha256_state_struct ctx;
+    const uint8_t *src = (const uint8_t *)FM_SLOT1_BASE;
+    uint32_t chunk;
+
+    if (tc_sha256_init(&ctx) != TC_CRYPTO_SUCCESS) {
+        return -1;
+    }
+    while (len > 0) {
+        chunk = (len > 512) ? 512 : len;
+        if (tc_sha256_update(&ctx, src, chunk) != TC_CRYPTO_SUCCESS) {
+            return -1;
+        }
+        src += chunk;
+        len -= chunk;
+    }
+    return (tc_sha256_final(out, &ctx) == TC_CRYPTO_SUCCESS) ? 0 : -1;
+}
+
+/* Verify the downloaded image in slot1:
+ * header magic/hdr_size, then locate the SHA256 TLV and compare it against
+ * a hash recomputed over header+image ([0, hdr_size + img_size)).
+ */
+static int otaVerifyImage(void)
+{
+    struct image_header hdr;
+    struct image_tlv_info info;
+    uint8_t digest[IMAGE_HASH_LEN];
+    uint8_t ref[IMAGE_HASH_LEN];
+    uint32_t img_end;
+    uint32_t tlv_base;
+    uint32_t off;
+    uint32_t end;
+
+    memcpy(&hdr, (const void *)FM_SLOT1_BASE, sizeof(hdr));
+    if (hdr.ih_magic != IMAGE_MAGIC) {
+        return -1;
+    }
+    if (hdr.ih_hdr_size != FM_IMG_HDR_SIZE) {
+        return -2;
+    }
+    img_end = (uint32_t)hdr.ih_hdr_size + hdr.ih_img_size;
+    if (img_end > otaRxOffset) {
+        return -3;
+    }
+    if (otaComputeHash(img_end, digest) != 0) {
+        return -4;
+    }
+
+    /* TLV area starts after the image, aligned up to 8 (--align 8) */
+    tlv_base = FM_SLOT1_BASE + hdr.ih_hdr_size +
+               ((hdr.ih_img_size + 7u) & ~7u);
+    if (tlv_base + sizeof(info) > FM_SLOT1_BASE + otaRxOffset) {
+        return -5;
+    }
+    memcpy(&info, (const void *)tlv_base, sizeof(info));
+    if (info.it_magic != IMAGE_TLV_INFO_MAGIC) {
+        return -6;
+    }
+    off = tlv_base + sizeof(info);
+    end = tlv_base + info.it_tlv_tot;
+    if (end > FM_SLOT1_BASE + otaRxOffset) {
+        return -7;
+    }
+    while (off + sizeof(struct image_tlv) <= end) {
+        struct image_tlv tlv;
+        memcpy(&tlv, (const void *)off, sizeof(tlv));
+        if (tlv.it_type == IMAGE_TLV_SHA256 && tlv.it_len == IMAGE_HASH_LEN) {
+            memcpy(ref, (const void *)(off + sizeof(tlv)), IMAGE_HASH_LEN);
+            return (memcmp(digest, ref, IMAGE_HASH_LEN) == 0) ? 0 : -8;
+        }
+        off += sizeof(tlv) + ((tlv.it_len + 3u) & ~3u);
+    }
+    return -9;
+}
+
+static void otaSendAck(uint8_t sub, uint8_t status, uint32_t value)
+{
+    atkp_t p;
+
+    p.msgID = UP_OTA;
+    p.dataLen = 6;
+    p.data[0] = sub;
+    p.data[1] = status;
+    p.data[2] = (uint8_t)(value);
+    p.data[3] = (uint8_t)(value >> 8);
+    p.data[4] = (uint8_t)(value >> 16);
+    p.data[5] = (uint8_t)(value >> 24);
+
+    radiolinkSendPacketBlocking(&p);
+    otaUartBridgeSend(&p);
+}
+
+static void otaProcessBegin(const atkp_t *p)
+{
+    uint32_t total;
+    const struct flash_area *fa = NULL;
+
+    if (p->dataLen < 5) {
+        otaSendAck(OTA_SUB_BEGIN, OTA_ST_ERR_STATE, 0);
+        return;
+    }
+    total = otaReadU32(&p->data[1]);
+
+    if (atkpIsFlightUnlocked()) {
+        otaSendAck(OTA_SUB_BEGIN, OTA_ST_ERR_ARMED, 0);
+        return;
+    }
+    if (total < IMAGE_HEADER_SIZE || total > OTA_MAX_IMAGE_SIZE) {
+        otaSendAck(OTA_SUB_BEGIN, OTA_ST_ERR_SIZE, 0);
+        return;
+    }
+
+    otaWatchdogRelax();
+
+    if (flash_area_open(FLASH_AREA_IMAGE_0_SECONDARY, &fa) != 0) {
+        otaSendAck(OTA_SUB_BEGIN, OTA_ST_ERR_STATE, 0);
+        return;
+    }
+    if (flash_area_erase(fa, 0, fa->fa_size) != 0) {
+        flash_area_close(fa);
+        otaSendAck(OTA_SUB_BEGIN, OTA_ST_ERR_STATE, 0);
+        return;
+    }
+    flash_area_close(fa);
+    IWDG_ReloadCounter();
+
+    otaTotalSize = total;
+    otaRxOffset = 0;
+    otaProgOffset = 0;
+    otaTailLen = 0;
+    otaState = OTA_DOWNLOAD;
+    otaSendAck(OTA_SUB_BEGIN, OTA_ST_OK, 0);
+}
+
+static void otaProcessData(const atkp_t *p)
+{
+    uint32_t offset;
+    uint32_t len;
+
+    if (otaState != OTA_DOWNLOAD || p->dataLen < 6) {
+        otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_STATE, otaRxOffset);
+        return;
+    }
+    offset = otaReadU32(&p->data[1]);
+    len = p->data[5];
+    if (len == 0 || len > (uint32_t)p->dataLen - 6u) {
+        otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_STATE, otaRxOffset);
+        return;
+    }
+    if (offset != otaRxOffset) {
+        otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_OFFSET, otaRxOffset);
+        return;
+    }
+    if (len > otaTotalSize - otaRxOffset) {
+        otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_SIZE, otaRxOffset);
+        return;
+    }
+
+    if (otaFlashAppend(&p->data[6], len) != 0) {
+        otaState = OTA_IDLE; /* flash fault: force a fresh BEGIN */
+        otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_STATE, otaRxOffset);
+        return;
+    }
+    IWDG_ReloadCounter();
+    otaSendAck(OTA_SUB_DATA, OTA_ST_OK, otaRxOffset);
+}
+
+static void otaProcessEnd(const atkp_t *p)
+{
+    (void)p;
+    if (otaState != OTA_DOWNLOAD) {
+        otaSendAck(OTA_SUB_END, OTA_ST_ERR_STATE, otaRxOffset);
+        return;
+    }
+    if (otaRxOffset != otaTotalSize) {
+        otaSendAck(OTA_SUB_END, OTA_ST_ERR_VERIFY, otaRxOffset);
+        return;
+    }
+    if (otaFlashFlush() != 0 || otaVerifyImage() != 0) {
+        otaState = OTA_IDLE;
+        otaSendAck(OTA_SUB_END, OTA_ST_ERR_VERIFY, otaRxOffset);
+        return;
+    }
+    if (boot_set_pending(0) != 0) {
+        /* image is still valid in slot1: allow END retry */
+        otaSendAck(OTA_SUB_END, OTA_ST_ERR_STATE, otaRxOffset);
+        return;
+    }
+
+    otaSendAck(OTA_SUB_END, OTA_ST_OK, otaTotalSize);
+    vTaskDelay(500); /* let the ACK drain before reset */
+    NVIC_SystemReset();
+}
+
+static void otaProcess(const atkp_t *p)
+{
+    if (p->dataLen < 1) {
+        return;
+    }
+    switch (p->data[0]) {
+    case OTA_SUB_BEGIN:
+        otaProcessBegin(p);
+        break;
+    case OTA_SUB_DATA:
+        otaProcessData(p);
+        break;
+    case OTA_SUB_END:
+        otaProcessEnd(p);
+        break;
+    case OTA_SUB_STATUS:
+    default:
+        otaSendAck(OTA_SUB_STATUS, OTA_ST_OK,
+                   (otaState == OTA_DOWNLOAD) ? otaRxOffset : 0);
+        break;
+    }
+}
+
+void otaTask(void *param)
+{
+    atkp_t p;
+    (void)param;
+
+    while (1) {
+        if (xQueueReceive(otaQueue, &p, portMAX_DELAY) == pdTRUE) {
+            otaProcess(&p);
+        }
+    }
+}
+
+void otaHandlePacket(const atkp_t *p)
+{
+    if (!otaIsInit) {
+        return;
+    }
+    /* Queue full: drop; the host re-syncs via STATUS / ACK timeout. */
+    (void)xQueueSend(otaQueue, p, 0);
+}
+
+void otaInit(void)
+{
+    if (otaIsInit) {
+        return;
+    }
+    otaQueue = xQueueCreate(OTA_QUEUE_LEN, sizeof(atkp_t));
+    if (otaQueue == NULL) {
+        for (;;) {
+        }
+    }
+    otaState = OTA_IDLE;
+    otaIsInit = true;
+}

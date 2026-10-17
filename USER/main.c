@@ -1,4 +1,7 @@
 #include "system.h"	/*头文件集合*/
+#include "bootutil/bootutil_public.h"	/*MCUBoot公共API：确认当前镜像，防止回滚*/
+#include "ota.h"
+#include "ota_uart_bridge.h"
 
 /********************************************************************************
  * 本程序只供学习使用，未经作者许可，不得用于其它任何用途
@@ -36,6 +39,8 @@ void startTask(void *arg)
     而实际运行是在vTaskStartScheduler()中，所以在这个任务里面实际运行的时候系统已经开始调度了，
     所以为了防止被高层级的抢占，需要进入临界区*/
 
+    boot_set_confirmed();												/*确认当前slot0镜像，防止下次上电被回滚(MCUBoot)*/
+
     xTaskCreate(radiolinkTask, "RADIOLINK", 150, NULL, 5, NULL);		/*创建无线连接任务*/
 
     xTaskCreate(usblinkRxTask, "USBLINK_RX", 150, NULL, 4, NULL);		/*创建usb接收任务*/
@@ -53,6 +58,10 @@ void startTask(void *arg)
     xTaskCreate(stabilizerTask, "STABILIZER", 450, NULL, 5, NULL);		/*创建姿态任务*/
 
     xTaskCreate(expModuleMgtTask, "EXP_MODULE", 150, NULL, 1, NULL);	/*创建扩展模块管理任务*/
+
+    xTaskCreate(otaTask, "OTA", 300, NULL, 4, NULL);					/*创建OTA升级处理任务*/
+    xTaskCreate(otaUartBridgeTask, "OTA_UART", 200, NULL, 3, NULL);	/*创建OTA串口桥任务*/
+    otaInit();
 
     printf("Free heap: %d bytes\n", xPortGetFreeHeapSize());			/*打印剩余堆栈大小*/
 

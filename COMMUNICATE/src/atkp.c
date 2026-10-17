@@ -20,38 +20,39 @@
 #include "remoter_ctrl.h"
 #include "optical_flow.h"
 #include "state_estimator.h"
+#include "ota.h"
 
-/*FreeRTOSç›¸å…³å¤´æ–‡ä»¶*/
+/*FreeRTOSÏà¹ØÍ·ÎÄ¼ş*/
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
 #include "queue.h"
 
 /********************************************************************************	 
- * æœ¬ç¨‹åºåªä¾›å­¦ä¹ ä½¿ç”¨ï¼Œæœªç»ä½œè€…è®¸å¯ï¼Œä¸å¾—ç”¨äºå…¶å®ƒä»»ä½•ç”¨é€”
+ * ±¾³ÌĞòÖ»¹©Ñ§Ï°Ê¹ÓÃ£¬Î´¾­×÷ÕßĞí¿É£¬²»µÃÓÃÓÚÆäËüÈÎºÎÓÃÍ¾
  * ALIENTEK MiniFly
- * æ— çº¿é€šä¿¡é©±åŠ¨ä»£ç 	
- * æ­£ç‚¹åŸå­@ALIENTEK
- * æŠ€æœ¯è®ºå›:www.openedv.com
- * åˆ›å»ºæ—¥æœŸ:2017/5/12
- * ç‰ˆæœ¬ï¼šV1.3
- * ç‰ˆæƒæ‰€æœ‰ï¼Œç›—ç‰ˆå¿…ç©¶ã€‚
- * Copyright(C) å¹¿å·å¸‚æ˜Ÿç¿¼ç”µå­ç§‘æŠ€æœ‰é™å…¬å¸ 2014-2024
+ * ÎŞÏßÍ¨ĞÅÇı¶¯´úÂë	
+ * ÕıµãÔ­×Ó@ALIENTEK
+ * ¼¼ÊõÂÛÌ³:www.openedv.com
+ * ´´½¨ÈÕÆÚ:2017/5/12
+ * °æ±¾£ºV1.3
+ * °æÈ¨ËùÓĞ£¬µÁ°æ±Ø¾¿¡£
+ * Copyright(C) ¹ãÖİÊĞĞÇÒíµç×Ó¿Æ¼¼ÓĞÏŞ¹«Ë¾ 2014-2024
  * All rights reserved
- * è¯´æ˜ï¼šæ­¤æ–‡ä»¶ç¨‹åºåŸºäºäºåŒ¿åç§‘åˆ›åœ°é¢ç«™V4.34é€šä¿¡åè®®ä¸‹ä½æœº,ç¤ºä¾‹ä»£ç ä¿®æ”¹ã€‚
+ * ËµÃ÷£º´ËÎÄ¼ş³ÌĞò»ùÓÚÓÚÄäÃû¿Æ´´µØÃæÕ¾V4.34Í¨ĞÅĞ­ÒéÏÂÎ»»ú,Ê¾Àı´úÂëĞŞ¸Ä¡£
  *
- * ä¿®æ”¹è¯´æ˜:
- * ç‰ˆæœ¬V1.3 å¢åŠ ç”¨æˆ·æ•°æ®(USERDATA)ä¸Šä¼ åŠŸèƒ½ï¼Œæ–¹ä¾¿ç”¨æˆ·ä¸Šä¼ éœ€è¦è°ƒè¯•çš„æ•°æ®åˆ°ä¸Šä½æœºï¼Œ
- * ä¸Šä½æœºå®æ—¶æ‰“å°æ³¢å½¢ï¼Œæ–¹ä¾¿ç”¨æˆ·è°ƒè¯•ã€‚
+ * ĞŞ¸ÄËµÃ÷:
+ * °æ±¾V1.3 Ôö¼ÓÓÃ»§Êı¾İ(USERDATA)ÉÏ´«¹¦ÄÜ£¬·½±ãÓÃ»§ÉÏ´«ĞèÒªµ÷ÊÔµÄÊı¾İµ½ÉÏÎ»»ú£¬
+ * ÉÏÎ»»úÊµÊ±´òÓ¡²¨ĞÎ£¬·½±ãÓÃ»§µ÷ÊÔ¡£
 ********************************************************************************/
 
-//æ•°æ®æ‹†åˆ†å®å®šä¹‰ï¼Œè¯»å–æƒ³è¦ä½ç½®çš„å­—èŠ‚
-#define  BYTE0(dwTemp)       ( *( (u8 *)(&dwTemp)	)  )	//è¯»å–ç¬¬0ä¸ªå­—èŠ‚
-#define  BYTE1(dwTemp)       ( *( (u8 *)(&dwTemp) + 1) )	//è¯»å–ç¬¬1ä¸ªå­—èŠ‚
-#define  BYTE2(dwTemp)       ( *( (u8 *)(&dwTemp) + 2) )	//è¯»å–ç¬¬2ä¸ªå­—èŠ‚
-#define  BYTE3(dwTemp)       ( *( (u8 *)(&dwTemp) + 3) )	//è¯»å–ç¬¬3ä¸ªå­—èŠ‚
+//Êı¾İ²ğ·Öºê¶¨Òå£¬¶ÁÈ¡ÏëÒªÎ»ÖÃµÄ×Ö½Ú
+#define  BYTE0(dwTemp)       ( *( (u8 *)(&dwTemp)	)  )	//¶ÁÈ¡µÚ0¸ö×Ö½Ú
+#define  BYTE1(dwTemp)       ( *( (u8 *)(&dwTemp) + 1) )	//¶ÁÈ¡µÚ1¸ö×Ö½Ú
+#define  BYTE2(dwTemp)       ( *( (u8 *)(&dwTemp) + 2) )	//¶ÁÈ¡µÚ2¸ö×Ö½Ú
+#define  BYTE3(dwTemp)       ( *( (u8 *)(&dwTemp) + 3) )	//¶ÁÈ¡µÚ3¸ö×Ö½Ú
 
-//æ•°æ®è¿”å›å‘¨æœŸæ—¶é—´ï¼ˆå•ä½msï¼‰
+//Êı¾İ·µ»ØÖÜÆÚÊ±¼ä£¨µ¥Î»ms£©
 #define  PERIOD_STATUS		30
 #define  PERIOD_SENSOR 		10
 #define  PERIOD_RCDATA 		40
@@ -61,7 +62,7 @@
 #define  PERIOD_SPEED   	50
 #define  PERIOD_USERDATA   	20
 
-#define ATKP_RX_QUEUE_SIZE 	10 /*ATKPåŒ…æ¥æ”¶é˜Ÿåˆ—æ¶ˆæ¯ä¸ªæ•°*/
+#define ATKP_RX_QUEUE_SIZE 	10 /*ATKP°ü½ÓÊÕ¶ÓÁĞÏûÏ¢¸öÊı*/
 
 typedef struct  
 {
@@ -95,21 +96,21 @@ static void atkpSendPacket(atkp_t *p)
 		usblinkSendPacket(p);
 	}	
 }
-/***************************å‘é€è‡³åŒ¿åä¸Šä½æœºæŒ‡ä»¤******************************/
+/***************************·¢ËÍÖÁÄäÃûÉÏÎ»»úÖ¸Áî******************************/
 
-/*å‘é€çŠ¶æ€ä¿¡æ¯ï¼Œ			æ¨ªæ»šè§’ï¼Œ	ä¿¯ä»°è§’ï¼Œ	åèˆªè§’ï¼Œ	é«˜åº¦ï¼Œ		é£è¡Œæ¨¡å‹ï¼Œ	å¯é£çŠ¶æ€æ ‡å¿—*/
+/*·¢ËÍ×´Ì¬ĞÅÏ¢£¬			ºá¹ö½Ç£¬	¸©Ñö½Ç£¬	Æ«º½½Ç£¬	¸ß¶È£¬		·ÉĞĞÄ£ĞÍ£¬	¿É·É×´Ì¬±êÖ¾*/
 static void sendStatus(float roll, float pitch, float yaw, s32 alt, u8 fly_model, u8 armed)
 {
 	u8 _cnt=0;
 	atkp_t p;
-	vs16 _temp;		//16ä½æœ‰ç¬¦å·æ•´æ•°ä¸´æ—¶å˜é‡
+	vs16 _temp;		//16Î»ÓĞ·ûºÅÕûÊıÁÙÊ±±äÁ¿
 	vs32 _temp2 = alt;
 	
 	p.msgID = UP_STATUS;
 	
-	_temp = (int)(roll*100);	//intæ˜¯32ä½çš„ï¼Œè¿™é‡Œæ˜¯å¼ºåˆ¶è½¬æ¢æˆ16ä½æœ‰ç¬¦å·æ•´æ•°
-	p.data[_cnt++]=BYTE1(_temp);	//stm32æ˜¯å°ç«¯å­˜å‚¨ï¼Œä½å­—èŠ‚åœ¨å‰ï¼Œæ‰€ä»¥å…ˆæ”¾BYTE1ï¼Œå†æ”¾BYTE0
-	p.data[_cnt++]=BYTE0(_temp);	//å› ä¸ºå‘é€é‡‡ç”¨å¤§ç«¯åœ¨å‰çš„æ ¼å¼ï¼Œæ‰€ä»¥å…ˆæ”¾BYTE1ï¼Œå†æ”¾BYTE0
+	_temp = (int)(roll*100);	//intÊÇ32Î»µÄ£¬ÕâÀïÊÇÇ¿ÖÆ×ª»»³É16Î»ÓĞ·ûºÅÕûÊı
+	p.data[_cnt++]=BYTE1(_temp);	//stm32ÊÇĞ¡¶Ë´æ´¢£¬µÍ×Ö½ÚÔÚÇ°£¬ËùÒÔÏÈ·ÅBYTE1£¬ÔÙ·ÅBYTE0
+	p.data[_cnt++]=BYTE0(_temp);	//ÒòÎª·¢ËÍ²ÉÓÃ´ó¶ËÔÚÇ°µÄ¸ñÊ½£¬ËùÒÔÏÈ·ÅBYTE1£¬ÔÙ·ÅBYTE0
 	_temp = (int)(pitch*100);
 	p.data[_cnt++]=BYTE1(_temp);
 	p.data[_cnt++]=BYTE0(_temp);
@@ -129,7 +130,7 @@ static void sendStatus(float roll, float pitch, float yaw, s32 alt, u8 fly_model
 	atkpSendPacket(&p);
 }
 
-/*å‘é€ä¼ æ„Ÿå™¨æ•°æ®ï¼Œ		åŠ é€Ÿåº¦Xï¼Œ	åŠ é€Ÿåº¦Yï¼ŒåŠ é€Ÿåº¦Zï¼Œé™€èºä»ªXï¼Œé™€èºä»ªYï¼Œé™€èºä»ªZï¼Œ	ç£åŠ›è®¡Xï¼Œç£åŠ›è®¡Yï¼Œç£åŠ›è®¡Z*/
+/*·¢ËÍ´«¸ĞÆ÷Êı¾İ£¬		¼ÓËÙ¶ÈX£¬	¼ÓËÙ¶ÈY£¬¼ÓËÙ¶ÈZ£¬ÍÓÂİÒÇX£¬ÍÓÂİÒÇY£¬ÍÓÂİÒÇZ£¬	´ÅÁ¦¼ÆX£¬´ÅÁ¦¼ÆY£¬´ÅÁ¦¼ÆZ*/
 static void sendSenser(s16 a_x,s16 a_y,s16 a_z,s16 g_x,s16 g_y,s16 g_z,s16 m_x,s16 m_y,s16 m_z)
 {
 	u8 _cnt=0;
@@ -159,7 +160,7 @@ static void sendSenser(s16 a_x,s16 a_y,s16 a_z,s16 g_x,s16 g_y,s16 g_z,s16 m_x,s
 	p.data[_cnt++]=BYTE0(_temp);
 	
 	/*
-	é™€èºä»ªç»“æ„ä½“åˆå§‹åŒ–çš„å€¼å°±ä¸º0.å¦‚æœæ²¡è¿›è¡Œæ›´æ–°å€¼ï¼Œä¼ å…¥çš„å°±ä¸€ç›´æ˜¯0ï¼Œæ‰€ä»¥ä¸ç”¨ç®¡è¿™ä¸ª*/
+	ÍÓÂİÒÇ½á¹¹Ìå³õÊ¼»¯µÄÖµ¾ÍÎª0.Èç¹ûÃ»½øĞĞ¸üĞÂÖµ£¬´«ÈëµÄ¾ÍÒ»Ö±ÊÇ0£¬ËùÒÔ²»ÓÃ¹ÜÕâ¸ö*/
 	_temp = m_x;	
 	p.data[_cnt++]=BYTE1(_temp);
 	p.data[_cnt++]=BYTE0(_temp);
@@ -177,11 +178,11 @@ static void sendSenser(s16 a_x,s16 a_y,s16 a_z,s16 g_x,s16 g_y,s16 g_z,s16 m_x,s
 	atkpSendPacket(&p);
 }
 
-/*é¥æ§å™¨æ•°æ®å‚æ•°*/
-//æ•°æ®æ ¼å¼ï¼š				æ²¹é—¨ï¼Œ		åèˆªï¼Œ	æ¨ªæ»šï¼Œ	ä¿¯ä»°ï¼Œé¢å¤–é€šé“aux1ï¼Œ	aux2ï¼Œ	aux3ï¼Œ	aux4ï¼Œaux5ï¼Œaux6
+/*Ò£¿ØÆ÷Êı¾İ²ÎÊı*/
+//Êı¾İ¸ñÊ½£º				ÓÍÃÅ£¬		Æ«º½£¬	ºá¹ö£¬	¸©Ñö£¬¶îÍâÍ¨µÀaux1£¬	aux2£¬	aux3£¬	aux4£¬aux5£¬aux6
 static void sendRCData(u16 thrust,u16 yaw,u16 roll,u16 pitch,u16 aux1,u16 aux2,u16 aux3,u16 aux4,u16 aux5,u16 aux6)
 {
-	//ä¼ å…¥çš„å‚æ•°æ˜¯é¥æ§å™¨æƒ³è®©æ€ä¹ˆåŠ¨ï¼Œä¸æ˜¯å®é™…å§¿æ€è§’
+	//´«ÈëµÄ²ÎÊıÊÇÒ£¿ØÆ÷ÏëÈÃÔõÃ´¶¯£¬²»ÊÇÊµ¼Ê×ËÌ¬½Ç
 	u8 _cnt=0;
 	atkp_t p;
 	
@@ -227,7 +228,7 @@ static void sendPower(u16 votage, u16 current)
 	atkpSendPacket(&p);
 }
 
-//å…«è·¯çš„ç”µæœºPWMå€¼ï¼Œå•ä½0-1000ï¼Œå®é™…æˆ‘è¿™ä¸ªé¡¹ç›®åªç”¨åˆ°å››è·¯
+//°ËÂ·µÄµç»úPWMÖµ£¬µ¥Î»0-1000£¬Êµ¼ÊÎÒÕâ¸öÏîÄ¿Ö»ÓÃµ½ËÄÂ·
 static void sendMotorPWM(u16 m_1,u16 m_2,u16 m_3,u16 m_4,u16 m_5,u16 m_6,u16 m_7,u16 m_8)
 {
 	u8 _cnt=0;
@@ -367,7 +368,7 @@ static void sendUserData(u8 group,s16 a_x,s16 a_y,s16 a_z,s16 v_x,s16 v_y,s16 v_
 	atkpSendPacket(&p);
 }
 /****************************************************************************/
-/*æ•°æ®å‘¨æœŸæ€§å‘é€ç»™ä¸Šä½æœºï¼Œæ¯1msè°ƒç”¨ä¸€æ¬¡*/
+/*Êı¾İÖÜÆÚĞÔ·¢ËÍ¸øÉÏÎ»»ú£¬Ã¿1msµ÷ÓÃÒ»´Î*/
 static void atkpSendPeriod(void)
 {
 	static u16 count_ms = 1;
@@ -387,7 +388,7 @@ static void atkpSendPeriod(void)
 		getSensorRawData(&acc, &gyro, &mag);
 		sendSenser(acc.x, acc.y, acc.z, gyro.x, gyro.y, gyro.z, mag.x, mag.y, mag.z);
 	}
-	if(!(count_ms % PERIOD_USERDATA))	/*ç”¨æˆ·æ•°æ®*/
+	if(!(count_ms % PERIOD_USERDATA))	/*ÓÃ»§Êı¾İ*/
 	{
 		Axis3f acc,vel,pos;
 		float thrustBase = 0.1f * configParam.thrustBase;
@@ -427,7 +428,7 @@ static void atkpSendPeriod(void)
 		count_ms = 1;	
 }
 
-//ç´¯åŠ å’Œæ ¡éªŒï¼Œå¯èƒ½å¯ä»¥å‡çº§ä¸€ä¸‹
+//ÀÛ¼ÓºÍĞ£Ñé£¬¿ÉÄÜ¿ÉÒÔÉı¼¶Ò»ÏÂ
 static u8 atkpCheckSum(atkp_t *packet)
 {
 	u8 sum;
@@ -483,7 +484,7 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 	}			
 	else if(anlPacket->msgID == DOWN_ACK)
 	{
-		if(anlPacket->data[0] == D_ACK_READ_PID)/*è¯»å–PIDå‚æ•°*/
+		if(anlPacket->data[0] == D_ACK_READ_PID)/*¶ÁÈ¡PID²ÎÊı*/
 		{
 			sendPid(1, pidRateRoll.kp, pidRateRoll.ki, pidRateRoll.kd,
 					   pidRatePitch.kp, pidRatePitch.ki, pidRatePitch.kd,
@@ -502,12 +503,12 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 					   0, 0, 0
 				   );
 		}
-		if(anlPacket->data[0] == D_ACK_RESET_PARAM)/*æ¢å¤é»˜è®¤å‚æ•°*/
+		if(anlPacket->data[0] == D_ACK_RESET_PARAM)/*»Ö¸´Ä¬ÈÏ²ÎÊı*/
 		{
 			resetConfigParamPID();
 			
-			attitudeControlInit(RATE_PID_DT, ANGEL_PID_DT); /*åˆå§‹åŒ–å§¿æ€PID*/	
-			positionControlInit(VELOCITY_PID_DT, POSITION_PID_DT); /*åˆå§‹åŒ–ä½ç½®PID*/
+			attitudeControlInit(RATE_PID_DT, ANGEL_PID_DT); /*³õÊ¼»¯×ËÌ¬PID*/	
+			positionControlInit(VELOCITY_PID_DT, POSITION_PID_DT); /*³õÊ¼»¯Î»ÖÃPID*/
 			
 			sendPid(1, pidRateRoll.kp, pidRateRoll.ki, pidRateRoll.kd,
 					   pidRatePitch.kp, pidRatePitch.ki, pidRatePitch.kd,
@@ -535,7 +536,7 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 	{
 		pmSyslinkUpdate(anlPacket);
 	}
-	else if(anlPacket->msgID == DOWN_REMOTER)/*é¥æ§å™¨*/	
+	else if(anlPacket->msgID == DOWN_REMOTER)/*Ò£¿ØÆ÷*/	
 	{
 		remoterCtrlProcess(anlPacket);
 	}
@@ -581,7 +582,7 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 		pidVX.ki = 0.1*((s16)(*(anlPacket->data+14)<<8)|*(anlPacket->data+15));
 		pidVX.kd = 0.1*((s16)(*(anlPacket->data+16)<<8)|*(anlPacket->data+17));
 		
-		pidVY = pidVX;	//ä½ç½®é€Ÿç‡PIDï¼ŒX\Yæ–¹å‘æ˜¯ä¸€æ ·çš„
+		pidVY = pidVX;	//Î»ÖÃËÙÂÊPID£¬X\Y·½ÏòÊÇÒ»ÑùµÄ
 		
 		u8 cksum = atkpCheckSum(anlPacket);
 		sendCheck(anlPacket->msgID,cksum);
@@ -592,7 +593,7 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 		pidX.ki = 0.1*((s16)(*(anlPacket->data+2)<<8)|*(anlPacket->data+3));
 		pidX.kd = 0.1*((s16)(*(anlPacket->data+4)<<8)|*(anlPacket->data+5));
 		
-		pidY = pidX;	//ä½ç½®ä¿æŒPIDï¼ŒX\Yæ–¹å‘æ˜¯ä¸€æ ·çš„
+		pidY = pidX;	//Î»ÖÃ±£³ÖPID£¬X\Y·½ÏòÊÇÒ»ÑùµÄ
 		
 		u8 cksum = atkpCheckSum(anlPacket);
 		sendCheck(anlPacket->msgID,cksum);
@@ -618,11 +619,15 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 		u8 cksum = atkpCheckSum(anlPacket);
 		sendCheck(anlPacket->msgID,cksum);
 	}
+	else if(anlPacket->msgID == DOWN_OTA)/*OTAÉı¼¶*/
+	{
+		otaHandlePacket(anlPacket);
+	}
 } 
 
 void atkpTxTask(void *param)
 {
-	sendMsgACK();	//å¯åŠ¨ä»»åŠ¡å…ˆå‘ä¸€ä¸²æ•°æ®ï¼Œè®©ä¸Šä½æœºçŸ¥é“é£æ§å·²ç»å¯åŠ¨äº†ï¼Œé¿å…ä¸Šä½æœºé•¿æ—¶é—´ç­‰å¾…æ²¡æœ‰æ•°æ®è€Œä»¥ä¸ºé£æ§æ²¡å¯åŠ¨
+	sendMsgACK();	//Æô¶¯ÈÎÎñÏÈ·¢Ò»´®Êı¾İ£¬ÈÃÉÏÎ»»úÖªµÀ·É¿ØÒÑ¾­Æô¶¯ÁË£¬±ÜÃâÉÏÎ»»ú³¤Ê±¼äµÈ´ıÃ»ÓĞÊı¾İ¶øÒÔÎª·É¿ØÃ»Æô¶¯
 	while(1)
 	{
 		atkpSendPeriod();
@@ -644,7 +649,7 @@ void atkpInit(void)
 {
 	if(isInit) return;
 	rxQueue = xQueueCreate(ATKP_RX_QUEUE_SIZE, sizeof(atkp_t));
-	ASSERT(rxQueue);	//æ£€æŸ¥é˜Ÿåˆ—æ˜¯å¦åˆ›å»ºOKï¼Œå…³é”®çš„
+	ASSERT(rxQueue);	//¼ì²é¶ÓÁĞÊÇ·ñ´´½¨OK£¬¹Ø¼üµÄ
 	isInit = true;
 }
 
