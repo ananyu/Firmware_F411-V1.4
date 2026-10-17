@@ -1,5 +1,5 @@
 #include "system.h"	/*头文件集合*/
-#include "bootutil/bootutil_public.h"	/*MCUBoot公共API：确认当前镜像，防止回滚*/
+#include "bootutil/bootutil_public.h"  /*MCUBoot公共API：确认当前镜像，防止回滚*/
 #include "ota.h"
 #include "ota_uart_bridge.h"
 
