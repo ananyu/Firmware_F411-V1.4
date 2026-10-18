@@ -10,9 +10,24 @@ Frame format (matches COMMUNICATE/src/ota.c):
   uplink   : AA AA 0x61 len data... cksum
   data[0]=sub-command, data[1]=status, data[2..5]=u32 LE value (rx offset)
 
+Transfer mode: sliding-window (go-back-N) DATA pipeline.
+  The flight side processes frames strictly in order and answers every
+  frame with a cumulative watermark:
+    ST_OK         value = offset after append   (progress)
+    ST_ERR_OFFSET value = offset it expects     (gap detected, resync)
+  The sender keeps WINDOW frames in flight and needs no per-frame stop-and-
+  wait, which removes one full radio round-trip (~220 ms) from every 24-byte
+  chunk.  Both ACK values report the same firmware-side otaRxOffset, so:
+    ERR value >  acked : we missed OKs, jump forward
+    ERR value == acked : gap at watermark, resend from there (no-op if
+                         nothing is in flight -- also covers delayed dupes)
+    ERR value <  acked : stale rejection of an old duplicate, ignore
+  Firmware without this handling still works: it answers out-of-order
+  frames with ERR_OFFSET(expected), which is exactly the resync path above.
+
 Usage:
   python ota_upload.py COM3 USER\\BIN\\Firmware_F411_image.bin
-  python ota_upload.py COM3 image.bin --baud 115200
+  python ota_upload.py COM3 image.bin --baud 115200 --window 8
 
 Requires pyserial:  pip install pyserial
 """
@@ -43,7 +58,7 @@ ST_ERR_OFFSET = 3
 ST_ERR_VERIFY = 4
 ST_ERR_STATE = 5
 
-CHUNK = 24          # max DATA payload per atkp frame (30 - 6 header bytes)
+CHUNK = 22          # DATA chunk per atkp frame (30 - sub/offset/len/crc16)
 ACK_TIMEOUT = 3.0   # seconds; BEGIN 含 S6 扇区擦除，ACK 回环可能超过 1s
 MAX_RETRY = 8
 
@@ -61,6 +76,16 @@ def build_frame(msg_id, payload):
     body = bytes([DOWN_BYTE1, DOWN_BYTE2, msg_id, len(payload)]) + payload
     cksum = sum(body) & 0xFF
     return body + bytes([cksum])
+
+
+def crc16(data):
+    """CRC16-CCITT (init 0xFFFF, poly 0x1021) - matches otaCrc16() in ota.c."""
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
 
 
 class AckReader(object):
@@ -137,33 +162,97 @@ def cmd_begin(ser, total):
     return False
 
 
-def cmd_data(ser, image):
+def cmd_status(ser):
+    """Query firmware-side rx offset. Returns offset (>=0) or None if no ACK.
+    offset==0 means the state machine is NOT in DOWNLOAD (idle / after BEGIN)."""
     reader = AckReader(ser)
-    offset = 0
+    for _ in range(3):
+        ser.write(build_frame(DOWN_OTA, bytes([SUB_STATUS])))
+        st, val = reader.wait_ack(SUB_STATUS, timeout=2.0)
+        if st is not None and val is not None:
+            return val
+    return None
+
+
+def cmd_data(ser, image, window):
+    """Sliding-window DATA transfer (go-back-N on cumulative watermark)."""
+    reader = AckReader(ser)
     total = len(image)
+    acked = 0           # cumulative watermark confirmed by the firmware
+    sent = 0            # next offset to transmit
+    resyncs = 0
+    idle_strikes = 0    # consecutive "ERR_STATE + STATUS==0" confirmations
     t0 = time.time()
-    while offset < total:
-        chunk = image[offset:offset + CHUNK]
-        payload = bytes([SUB_DATA]) + struct.pack("<I", offset) + \
-            bytes([len(chunk)]) + chunk
-        ser.write(build_frame(DOWN_OTA, payload))
-        st, val = reader.wait_ack(SUB_DATA)
+    last_print = 0.0
+
+    while acked < total:
+        # Fill the window: keep up to `window` chunks in flight.
+        while sent < total and sent - acked < window * CHUNK:
+            chunk = image[sent:sent + CHUNK]
+            body = struct.pack("<I", sent) + bytes([len(chunk)]) + chunk
+            # frame CRC16 over offset||len||chunk: the atkp u8 sum lets
+            # parser-desync garbage through 1/256 of the time and the
+            # firmware would program it into slot1 silently.
+            payload = bytes([SUB_DATA]) + body + struct.pack("<H", crc16(body))
+            ser.write(build_frame(DOWN_OTA, payload))
+            sent += len(chunk)
+
+        st, val = reader.wait_ack(SUB_DATA, timeout=ACK_TIMEOUT)
         if st == ST_OK:
-            offset = val  # firmware reports the accepted offset
+            idle_strikes = 0
+            if val is not None and val > acked:
+                acked = val
+                sent = max(sent, acked)  # 不重发水位线之前的数据
         elif st == ST_ERR_OFFSET and val is not None:
-            print("resync at offset %d" % val)
-            offset = val
+            idle_strikes = 0
+            if val > acked:
+                # Missed OKs: firmware is further along than our watermark.
+                acked = val
+                sent = max(sent, acked)
+            elif val == acked:
+                # Gap at the watermark: resend from there. No-op when
+                # nothing is in flight; also absorbs stale duplicate rejects.
+                if sent > acked:
+                    resyncs += 1
+                sent = acked
+            # val < acked: stale rejection of an old duplicate -> ignore
+        elif st == ST_ERR_STATE:
+            # ERR_STATE 可能是遥测流字节被误解析出的假ACK，也可能是固件
+            # 状态机真的丢失了 DOWNLOAD 状态。用 STATUS 查询甄别。
+            real = cmd_status(ser)
+            if real is None:
+                continue  # 无法确认，保持现状继续等（可能只是链路抖动）
+            if real == 0:
+                # STATUS 报 0：可能是假ACK后的空状态，也可能真丢了。连续
+                # 3 次无进展就认定为真丢，交给上层重新 BEGIN。
+                idle_strikes += 1
+                if idle_strikes >= 3 or acked > 0:
+                    return False
+            else:
+                idle_strikes = 0
+                if real > acked:
+                    acked = real
+                    sent = max(sent, acked)
+        elif st is None:
+            # No progress within ACK_TIMEOUT: go back to the watermark.
+            if sent > acked:
+                resyncs += 1
+            sent = acked
         else:
-            print("DATA @0x%x failed: %s, retrying" %
-                  (offset, ST_NAMES.get(st, "NO_ACK")))
-            time.sleep(0.05)
-            continue
-        done = offset * 100 // total
-        sys.stdout.write("\r  %d%% (%d/%d bytes)" % (done, offset, total))
-        sys.stdout.flush()
+            # Transient error statuses: keep waiting for real progress.
+            time.sleep(0.02)
+
+        now = time.time()
+        if now - last_print >= 0.5:
+            last_print = now
+            done = acked * 100 // total
+            sys.stdout.write("\r  %d%% (%d/%d bytes)" % (done, acked, total))
+            sys.stdout.flush()
+
     sys.stdout.write("\n")
     dt = time.time() - t0
-    print("DATA done in %.1f s (%.0f B/s)" % (dt, total / max(dt, 0.1)))
+    print("DATA done in %.1f s (%.0f B/s), resyncs: %d" %
+          (dt, total / max(dt, 0.1), resyncs))
     return True
 
 
@@ -189,6 +278,8 @@ def main():
     ap.add_argument("port", help="serial port, e.g. COM3")
     ap.add_argument("image", help="signed image file, e.g. USER\\BIN\\Firmware_F411_image.bin")
     ap.add_argument("--baud", type=int, default=115200)
+    ap.add_argument("--window", type=int, default=8,
+                    help="frames in flight during DATA (default 8)")
     args = ap.parse_args()
 
     with open(args.image, "rb") as f:
@@ -199,11 +290,19 @@ def main():
 
     ser = serial.Serial(args.port, args.baud, timeout=0, write_timeout=2)
     try:
-        print("Port %s @ %d, image %d bytes" % (args.port, args.baud, len(image)))
+        print("Port %s @ %d, image %d bytes, window %d" %
+              (args.port, args.baud, len(image), args.window))
         print("Note: aircraft must be DISARMED or BEGIN is refused (ERR_ARMED).")
-        if not cmd_begin(ser, len(image)):
-            sys.exit(2)
-        if not cmd_data(ser, image):
+        ok = False
+        for attempt in range(2):
+            if not cmd_begin(ser, len(image)):
+                sys.exit(2)
+            if cmd_data(ser, image, args.window):
+                ok = True
+                break
+            print("firmware OTA state lost (confirmed via STATUS); "
+                  "restarting transfer from scratch")
+        if not ok:
             sys.exit(3)
         if not cmd_end(ser):
             sys.exit(4)

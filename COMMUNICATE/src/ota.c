@@ -39,7 +39,11 @@
 #include "task.h"
 #include "queue.h"
 
-#define OTA_QUEUE_LEN   8
+/* Queue must absorb a full sender window (W=8 frames) plus link jitter
+ * without dropping; otaHandlePacket() drops on overflow and the host
+ * re-syncs via the ACK watermark, but deep queueing keeps the pipeline
+ * fed. 24 x 32 B = 768 B RAM. */
+#define OTA_QUEUE_LEN   24
 
 typedef enum
 {
@@ -60,6 +64,22 @@ static uint32_t otaReadU32(const uint8_t *p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* CRC16-CCITT (init 0xFFFF, poly 0x1021), bitwise: 22-byte chunk -> ~350
+ * cycles, negligible next to flash programming. */
+static uint16_t otaCrc16(const uint8_t *p, uint32_t len)
+{
+    uint16_t crc = 0xFFFFu;
+    while (len--) {
+        int i;
+        crc ^= (uint16_t)(*p++) << 8;
+        for (i = 0; i < 8; i++) {
+            crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
+                                  : (uint16_t)(crc << 1);
+        }
+    }
+    return crc;
 }
 
 /* IWDG relax: prescaler 32 -> 256, reload 0xFFF => ~32 s window.
@@ -258,15 +278,31 @@ static void otaProcessData(const atkp_t *p)
 {
     uint32_t offset;
     uint32_t len;
+    uint16_t rxcrc;
+    uint16_t calcrc;
 
-    if (otaState != OTA_DOWNLOAD || p->dataLen < 6) {
+    if (otaState != OTA_DOWNLOAD || p->dataLen < 8) {
         otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_STATE, otaRxOffset);
         return;
     }
     offset = otaReadU32(&p->data[1]);
     len = p->data[5];
-    if (len == 0 || len > (uint32_t)p->dataLen - 6u) {
+    if (len == 0 || len > OTA_MAX_CHUNK ||
+        len + 8u > (uint32_t)p->dataLen) {
         otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_STATE, otaRxOffset);
+        return;
+    }
+    /* Frame CRC16 over offset||len||chunk: the atkp u8 sum lets parser-
+     * desync garbage through 1/256 of the time; without this check the
+     * stitched wire bytes get programmed into slot1 silently (observed:
+     * 5 corrupted regions / 38 bad bytes in one 109 KB transfer). */
+    calcrc = otaCrc16(&p->data[1], 5u + len);
+    rxcrc = (uint16_t)p->data[6u + len] |
+            ((uint16_t)p->data[7u + len] << 8);
+    if (calcrc != rxcrc) {
+        /* Do NOT program anything; answer with the watermark so the host
+         * go-back-N resends from otaRxOffset. */
+        otaSendAck(OTA_SUB_DATA, OTA_ST_ERR_OFFSET, otaRxOffset);
         return;
     }
     if (offset != otaRxOffset) {
