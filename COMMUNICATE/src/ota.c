@@ -168,9 +168,9 @@ static int otaVerifyImage(void)
         return -4;
     }
 
-    /* TLV area starts after the image, aligned up to 8 (--align 8) */
-    tlv_base = FM_SLOT1_BASE + hdr.ih_hdr_size +
-               ((hdr.ih_img_size + 7u) & ~7u);
+    /* TLV area starts right after the image; matches MCUBoot's
+     * BOOT_TLV_OFF: ih_hdr_size + ih_img_size (no padding). */
+    tlv_base = FM_SLOT1_BASE + hdr.ih_hdr_size + hdr.ih_img_size;
     if (tlv_base + sizeof(info) > FM_SLOT1_BASE + otaRxOffset) {
         return -5;
     }

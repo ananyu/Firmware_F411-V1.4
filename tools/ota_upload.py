@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding: ascii -*-
+# -*- coding: utf-8 -*-
 """
 ota_upload.py - upload a signed MCUBoot image to MiniFly over the USART1
 OTA bridge (or any transparent link carrying atkp frames, e.g. a USB-TTL
@@ -44,7 +44,7 @@ ST_ERR_VERIFY = 4
 ST_ERR_STATE = 5
 
 CHUNK = 24          # max DATA payload per atkp frame (30 - 6 header bytes)
-ACK_TIMEOUT = 1.0   # seconds
+ACK_TIMEOUT = 3.0   # seconds; BEGIN 含 S6 扇区擦除，ACK 回环可能超过 1s
 MAX_RETRY = 8
 
 ST_NAMES = {
@@ -86,7 +86,8 @@ class AckReader(object):
         """Wait for an UP_OTA ACK whose data[0] == sub. Returns (status, value)."""
         end = time.time() + timeout
         while time.time() < end:
-            self._drain(max(0.0, end - time.time()))
+            # 小切片轮询：收一点就解析，避免高码率遥测流把未解析的ACK冲掉(_drain内有截断)
+            self._drain(min(0.02, max(0.0, end - time.time())))
             # resync search
             while True:
                 i = self.buf.find(bytes([UP_BYTE1, UP_BYTE2, UP_OTA]))
@@ -104,7 +105,7 @@ class AckReader(object):
                     break
                 frame = self.buf[:total]
                 self.buf = self.buf[total:]
-                if (sum(frame) & 0xFF) != 0:
+                if (sum(frame[:-1]) & 0xFF) != frame[-1]:  # 累加和校验：末字节=前面所有字节之和
                     continue  # bad checksum, keep resyncing
                 data = frame[4:4 + dlen]
                 if len(data) < 6 or data[0] != sub:
