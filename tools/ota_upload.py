@@ -206,8 +206,8 @@ class AckReader(object):
             if n:
                 self.buf.extend(self.ser.read(n))
                 # keep the buffer bounded but never split a frame tail
-                if len(self.buf) > 256:
-                    self.buf = self.buf[-64:]
+                if len(self.buf) > 2048:
+                    self.buf = self.buf[-256:]
             else:
                 time.sleep(0.002)
 
@@ -215,8 +215,9 @@ class AckReader(object):
         """Wait for an UP_OTA ACK whose data[0] == sub. Returns (status, value)."""
         end = time.time() + timeout
         while time.time() < end:
-            # 小切片轮询：收一点就解析，避免高码率遥测流把未解析的ACK冲掉(_drain内有截断)
-            self._drain(min(0.02, max(0.0, end - time.time())))
+            # 小切片轮询：收一点就解析，避免高码率遥测流把未解析的ACK冲掉(_drain内有截断)。
+            # 切片必须远小于链路交换周期(~11ms)，否则每个ACK都白等一个切片时长
+            self._drain(min(0.003, max(0.0, end - time.time())))
             # resync search
             while True:
                 i = self.buf.find(bytes([UP_BYTE1, UP_BYTE2, UP_OTA]))
@@ -288,12 +289,18 @@ def cmd_data(ser, image, window, sub=SUB_DATA):
     sent = 0            # next offset to transmit
     resyncs = 0
     idle_strikes = 0    # consecutive "ERR_STATE + STATUS==0" confirmations
+    # 自适应窗口(AIMD)：遥控器 txQueue 只有 10 深且转发是非阻塞丢弃，
+    # 突发超过队列深度的帧会被静默丢掉，反而触发 resync 风暴。从 2 起步，
+    # 干净递增探测链路容量，一旦丢帧就减半，突发量永远压在队列容量之下。
+    win = 2
+    win_max = 2
+    grow = 0
     t0 = time.time()
     last_print = 0.0
 
     while acked < total:
-        # Fill the window: keep up to `window` chunks in flight.
-        while sent < total and sent - acked < window * CHUNK:
+        # Fill the window: keep up to `win` chunks in flight.
+        while sent < total and sent - acked < win * CHUNK:
             chunk = image[sent:sent + CHUNK]
             body = struct.pack("<I", sent) + bytes([len(chunk)]) + chunk
             # frame CRC16 over offset||len||chunk: the atkp u8 sum lets
@@ -309,6 +316,11 @@ def cmd_data(ser, image, window, sub=SUB_DATA):
             if val is not None and val > acked:
                 acked = val
                 sent = max(sent, acked)  # 不重发水位线之前的数据
+                grow += 1
+                if grow >= 8 and win < window:
+                    grow = 0
+                    win += 1
+                    win_max = max(win_max, win)
         elif st == ST_ERR_OFFSET and val is not None:
             idle_strikes = 0
             if val > acked:
@@ -320,6 +332,8 @@ def cmd_data(ser, image, window, sub=SUB_DATA):
                 # nothing is in flight; also absorbs stale duplicate rejects.
                 if sent > acked:
                     resyncs += 1
+                    win = max(2, win // 2)
+                    grow = 0
                 sent = acked
             # val < acked: stale rejection of an old duplicate -> ignore
         elif st == ST_ERR_STATE:
@@ -343,6 +357,8 @@ def cmd_data(ser, image, window, sub=SUB_DATA):
             # No progress within ACK_TIMEOUT: go back to the watermark.
             if sent > acked:
                 resyncs += 1
+                win = max(2, win // 2)
+                grow = 0
             sent = acked
         else:
             # Transient error statuses: keep waiting for real progress.
@@ -357,8 +373,8 @@ def cmd_data(ser, image, window, sub=SUB_DATA):
 
     sys.stdout.write("\n")
     dt = time.time() - t0
-    print("DATA done in %.1f s (%.0f B/s), resyncs: %d" %
-          (dt, total / max(dt, 0.1), resyncs))
+    print("DATA done in %.1f s (%.0f B/s), resyncs: %d, peak window: %d" %
+          (dt, total / max(dt, 0.1), resyncs, win_max))
     return True
 
 
@@ -468,7 +484,8 @@ def main():
     ap.add_argument("image", help="signed image file, e.g. USER\\BIN\\Firmware_F411_image.bin")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--window", type=int, default=8,
-                    help="frames in flight during DATA (default 8)")
+                    help="max frames in flight during DATA; the effective "
+                         "window is adaptive (AIMD) up to this cap (default 8)")
     ap.add_argument("--diff", metavar="OLD_IMAGE",
                     help="upload differentially: generate a patch against "
                          "OLD_IMAGE (the image currently running on the "
