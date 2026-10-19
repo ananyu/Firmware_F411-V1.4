@@ -282,12 +282,18 @@ void uartslkDmaIsr(void)
 void uartslkIsr(void)
 {
 	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+	u32 sr = UARTSLK_TYPE->SR;
 
-	//sr寄存器第五位RXNE=1表示接收数据寄存器非空，可以读取数据了
-	if ((UARTSLK_TYPE->SR & (1<<5)) != 0) /*接收非空中断*/
+	/* ORE/FE/NE 错误标志与 RXNE 共用 RXNEIE 中断使能，出错时也会进本 ISR，
+	 * 必须走"先读SR再读DR"的软件序列清除，否则错误标志会把中断线一直拉高 */
+	if (sr & ((1<<5) | (1<<3) | (1<<2) | (1<<1))) /*RXNE|ORE|FE|NE*/
 	{
-		u8 rxDataInterrupt = (u8)(UARTSLK_TYPE->DR & 0xFF);
-		xQueueSendFromISR(uartslkDataDelivery, &rxDataInterrupt, &xHigherPriorityTaskWoken);
+		//sr寄存器第五位RXNE=1表示接收数据寄存器非空，可以读取数据了
+		u8 rxDataInterrupt = (u8)(UARTSLK_TYPE->DR & 0xFF);	/*读DR，顺带清除ORE/FE/NE*/
+		if (sr & (1<<5))
+		{
+			xQueueSendFromISR(uartslkDataDelivery, &rxDataInterrupt, &xHigherPriorityTaskWoken);
+		}
 	}
 	else if (USART_GetITStatus(UARTSLK_TYPE, USART_IT_TXE) == SET)
 	{
@@ -301,6 +307,16 @@ void uartslkIsr(void)
 			USART_ITConfig(UARTSLK_TYPE, USART_IT_TXE, DISABLE);
 			xSemaphoreGiveFromISR(waitUntilSendDone, &xHigherPriorityTaskWoken);
 		}
+	}
+	else
+	{
+		/* 中断线被拉高但 RXNE=0、TXE 中断也不成立：典型是 ORE 残留状态
+		 * （RXNE 收数路径的读SR/读DR之间恰逢新字节完成会漏清 ORE）。
+		 * 不清除则本 ISR 被立即重入形成中断风暴，饿死所有任务——
+		 * OTA 差分重建时曾因此冻死、断喂狗被 IWDG 复位。再执行一次
+		 * "先读SR再读DR"把残留错误标志清掉。 */
+		(void)UARTSLK_TYPE->SR;
+		(void)UARTSLK_TYPE->DR;
 	}
 }
 

@@ -18,16 +18,16 @@
 
 bool watchdogTest(void)
 {
-	bool wasNormalStart = true;
-
-	if (RCC_GetFlagStatus(RCC_FLAG_IWDGRST)) 
+	if (RCC_GetFlagStatus(RCC_FLAG_IWDGRST))
 	{
 		RCC_ClearFlag();
-		wasNormalStart = false;
+		/* 只告警不判失败：若把 IWDGRST 当硬失败，systemInit() 会走红灯
+		 * 死循环，无线链路永远起不来——一次看门狗复位就等于变砖（OTA
+		 * 长时间擦写 flash 时尤其危险）。保留快照打印作为取证。 */
 		printf("The system resumed after watchdog timeout [WARNING]\n");
 		printAssertSnapshotData();
 	}
-	return wasNormalStart;
+	return true;
 }
 
 

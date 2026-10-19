@@ -28,6 +28,8 @@ Transfer mode: sliding-window (go-back-N) DATA pipeline.
 Usage:
   python ota_upload.py COM3 USER\\BIN\\Firmware_F411_image.bin
   python ota_upload.py COM3 image.bin --baud 115200 --window 8
+  python ota_upload.py COM3 new.bin --diff old.bin   (differential; auto
+      falls back to a full upload when the running baseline mismatches)
 
 Requires pyserial:  pip install pyserial
 """
@@ -35,6 +37,7 @@ import argparse
 import struct
 import sys
 import time
+import zlib
 
 try:
     import serial
@@ -50,6 +53,9 @@ SUB_STATUS = 0x00
 SUB_BEGIN = 0x01
 SUB_DATA = 0x02
 SUB_END = 0x03
+SUB_DBEGIN = 0x04
+SUB_DDATA = 0x05
+SUB_DEND = 0x06
 
 ST_OK = 0
 ST_ERR_ARMED = 1
@@ -61,6 +67,14 @@ ST_ERR_STATE = 5
 CHUNK = 22          # DATA chunk per atkp frame (30 - sub/offset/len/crc16)
 ACK_TIMEOUT = 3.0   # seconds; BEGIN 含 S6 扇区擦除，ACK 回环可能超过 1s
 MAX_RETRY = 8
+
+# --- differential patch format (matches otaApplyPatch() in ota.c) ---
+OP_COPY = 0x01      # 0x01 + u32 src_off + u16 n : copy old[src_off:src_off+n]
+OP_LIT = 0x02       # 0x02 + u8 n + n bytes      : literal (n 1..255)
+OP_END = 0xFF
+BLOCK = 16          # match-index block size
+MIN_MATCH = 12      # COPY costs 7 bytes -> pays off from n >= 12
+MAX_COPY = 0xFFFF   # u16 length field
 
 ST_NAMES = {
     ST_OK: "OK",
@@ -86,6 +100,96 @@ def crc16(data):
         for _ in range(8):
             crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
     return crc
+
+
+# ---- differential patch generator -------------------------------------
+# Greedy longest-match against a 16-byte block hash index over the old
+# image. Firmware images are highly repetitive, so a version bump usually
+# collapses to a few hundred bytes of patch instead of a ~110 KB upload
+# over a ~108 B/s radio link.
+
+def _extend_match(new, old, j, pos, k):
+    """Extend a k-byte match at new[j] vs old[pos] forward, in 64-byte
+    chunks for speed, capped at MAX_COPY."""
+    n, o = len(new), len(old)
+    while k < MAX_COPY and j + k < n and pos + k < o:
+        step = min(64, MAX_COPY - k, n - j - k, o - pos - k)
+        if new[j + k:j + k + step] == old[pos + k:pos + k + step]:
+            k += step
+        else:
+            break
+    return k
+
+
+def _flush_lit(out, lit):
+    i = 0
+    while i < len(lit):
+        n = min(255, len(lit) - i)
+        out += bytes([OP_LIT, n]) + lit[i:i + n]
+        i += n
+    del lit[:]
+
+
+def make_patch(old, new):
+    """Encode `old` -> `new` as COPY/LIT/END instructions."""
+    index = {}
+    for i in range(0, len(old) - BLOCK + 1):
+        index.setdefault(old[i:i + BLOCK], []).append(i)
+
+    out = bytearray()
+    lit = bytearray()
+    j = 0
+    n = len(new)
+    while j < n:
+        cands = index.get(new[j:j + BLOCK])
+        best = None
+        if cands:
+            for pos in cands:
+                k = _extend_match(new, old, j, pos, BLOCK)
+                if best is None or k > best[1]:
+                    best = (pos, k)
+        if best is not None and best[1] >= MIN_MATCH:
+            _flush_lit(out, lit)
+            out += bytes([OP_COPY])
+            out += struct.pack("<I", best[0])
+            out += struct.pack("<H", best[1])
+            j += best[1]
+        else:
+            lit.append(new[j])
+            j += 1
+            if len(lit) >= 255:
+                _flush_lit(out, lit)
+    _flush_lit(out, lit)
+    out.append(OP_END)
+    return bytes(out)
+
+
+def apply_patch(old, patch, new_size):
+    """Offline interpreter mirroring otaApplyPatch(); used to self-test the
+    generated patch before any bytes touch the air."""
+    out = bytearray()
+    i = 0
+    while i < len(patch):
+        op = patch[i]
+        i += 1
+        if op == OP_END:
+            break
+        if op == OP_COPY:
+            src, n = struct.unpack_from("<IH", patch, i)
+            i += 6
+            if src + n > len(old):
+                raise ValueError("COPY out of bounds at %d" % (i - 7))
+            out += old[src:src + n]
+        elif op == OP_LIT:
+            n = patch[i]
+            i += 1
+            out += patch[i:i + n]
+            i += n
+        else:
+            raise ValueError("bad opcode 0x%02x at %d" % (op, i - 1))
+    if len(out) != new_size:
+        raise ValueError("rebuilt size %d != %d" % (len(out), new_size))
+    return bytes(out)
 
 
 class AckReader(object):
@@ -174,8 +278,10 @@ def cmd_status(ser):
     return None
 
 
-def cmd_data(ser, image, window):
-    """Sliding-window DATA transfer (go-back-N on cumulative watermark)."""
+def cmd_data(ser, image, window, sub=SUB_DATA):
+    """Sliding-window DATA transfer (go-back-N on cumulative watermark).
+    sub selects the downlink payload id (SUB_DATA -> slot1, SUB_DDATA ->
+    scratch); the firmware ACKs both with SUB_DATA."""
     reader = AckReader(ser)
     total = len(image)
     acked = 0           # cumulative watermark confirmed by the firmware
@@ -193,7 +299,7 @@ def cmd_data(ser, image, window):
             # frame CRC16 over offset||len||chunk: the atkp u8 sum lets
             # parser-desync garbage through 1/256 of the time and the
             # firmware would program it into slot1 silently.
-            payload = bytes([SUB_DATA]) + body + struct.pack("<H", crc16(body))
+            payload = bytes([sub]) + body + struct.pack("<H", crc16(body))
             ser.write(build_frame(DOWN_OTA, payload))
             sent += len(chunk)
 
@@ -273,6 +379,89 @@ def cmd_end(ser):
     return False
 
 
+def cmd_dbegin(ser, patch_size, old_size, new_size, old_crc):
+    """DBEGIN: check baseline CRC32, erase scratch, arm the patch state.
+    Any rejection (incl. ERR_VERIFY = running image != OLD_IMAGE) makes the
+    caller fall back to a full upload."""
+    payload = bytes([SUB_DBEGIN]) + \
+        struct.pack("<IIII", patch_size, old_size, new_size, old_crc)
+    reader = AckReader(ser)
+    for attempt in range(MAX_RETRY):
+        ser.write(build_frame(DOWN_OTA, payload))
+        # scratch S7 (128 KB) sector erase takes ~2-4 s
+        st, val = reader.wait_ack(SUB_DBEGIN, timeout=max(ACK_TIMEOUT, 6.0))
+        if st == ST_OK:
+            print("DBEGIN ok: baseline match (CRC32 %08x), patch %d bytes" %
+                  (old_crc, patch_size))
+            return True
+        if st is None:
+            print("DBEGIN: no ACK, retry %d" % (attempt + 1))
+            continue
+        print("DBEGIN failed: %s (0x%02x)" % (ST_NAMES.get(st, "?"), st))
+        if st == ST_ERR_VERIFY:
+            print("baseline mismatch: running image differs from OLD_IMAGE")
+        return False
+    return False
+
+
+def wait_reboot(ser, reader, window=45.0):
+    """Watch the OTA link around the DEND reboot: STATUS must stop being
+    answered (slot1 rebuild + reset, link silent by design) and then answer
+    again once the new image has booted."""
+    t0 = time.time()
+    deadline = t0 + window
+    quiet = None            # when the link went silent
+    while time.time() < deadline:
+        ser.write(build_frame(DOWN_OTA, bytes([SUB_STATUS])))
+        st, val = reader.wait_ack(SUB_STATUS, timeout=1.5)
+        if st is None:
+            if quiet is None:
+                quiet = time.time()
+                print("link silent: device is resetting into MCUBoot...")
+        elif quiet is not None:
+            if time.time() - quiet >= 2.0:
+                print("device back up (STATUS=%d) after %.1f s of silence."
+                      % (val, time.time() - quiet))
+                return True
+            quiet = None    # short glitch (radio drop), keep watching
+        else:
+            # The post-ACK rebuild never answers (the OTA task is busy and
+            # queued frames die with the reset), so a link that stays
+            # responsive for >12 s means the rebuild failed early and sent
+            # a follow-up error ACK instead of rebooting.
+            if time.time() - t0 > 12.0:
+                print("device never went silent: DEND work failed after the ACK.")
+                return False
+    print("timeout waiting for the reboot")
+    return False
+
+
+def cmd_dend(ser):
+    """DEND: ACK-first protocol. The firmware ACKs OK immediately, then
+    erases + rebuilds slot1 (link silent for several seconds), verifies,
+    marks the swap pending and resets. A second ACK after the rebuild would
+    always miss the host timeout, so success is judged by watching the link
+    go silent and come back (wait_reboot)."""
+    reader = AckReader(ser)
+    for attempt in range(MAX_RETRY):
+        ser.write(build_frame(DOWN_OTA, bytes([SUB_DEND])))
+        st, val = reader.wait_ack(SUB_DEND, timeout=max(ACK_TIMEOUT, 6.0))
+        if st is None:
+            print("DEND: no ACK, retry %d" % (attempt + 1))
+            continue
+        if st != ST_OK:
+            print("DEND failed: %s" % ST_NAMES.get(st, "?"))
+            return False
+        break
+    else:
+        print("DEND: no ACK after %d tries" % MAX_RETRY)
+        return False
+    print("DEND accepted (image size %d): rebuilding slot1 now." % val)
+    print("The link is silent while slot1 is erased+rebuilt, then the FC "
+          "resets into MCUBoot. Do not power off.")
+    return wait_reboot(ser, reader)
+
+
 def main():
     ap = argparse.ArgumentParser(description="MiniFly OTA upload (atkp/OTA over UART)")
     ap.add_argument("port", help="serial port, e.g. COM3")
@@ -280,6 +469,11 @@ def main():
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--window", type=int, default=8,
                     help="frames in flight during DATA (default 8)")
+    ap.add_argument("--diff", metavar="OLD_IMAGE",
+                    help="upload differentially: generate a patch against "
+                         "OLD_IMAGE (the image currently running on the "
+                         "aircraft) and fall back to a full upload when the "
+                         "baseline does not match")
     args = ap.parse_args()
 
     with open(args.image, "rb") as f:
@@ -288,24 +482,56 @@ def main():
     if len(image) > 0x1FC00:
         sys.exit("image too large: %d bytes (max 0x1FC00)" % len(image))
 
+    patch = None
+    old = None
+    if args.diff:
+        with open(args.diff, "rb") as f:
+            old = f.read()
+        patch = make_patch(old, image)
+        # never ship a patch that is not cheaper than the full image
+        if len(patch) >= len(image):
+            print("patch (%d bytes) >= full image; uploading full instead" %
+                  len(patch))
+            patch = None
+        else:
+            try:
+                if apply_patch(old, patch, len(image)) != image:
+                    raise ValueError("rebuilt image differs")
+            except ValueError as e:
+                sys.exit("patch self-test failed: %s" % e)
+            print("patch: %d bytes vs %d full (%.1f%%) - self-test passed" %
+                  (len(patch), len(image), 100.0 * len(patch) / len(image)))
+
     ser = serial.Serial(args.port, args.baud, timeout=0, write_timeout=2)
     try:
         print("Port %s @ %d, image %d bytes, window %d" %
               (args.port, args.baud, len(image), args.window))
         print("Note: aircraft must be DISARMED or BEGIN is refused (ERR_ARMED).")
         ok = False
-        for attempt in range(2):
-            if not cmd_begin(ser, len(image)):
-                sys.exit(2)
-            if cmd_data(ser, image, args.window):
-                ok = True
-                break
-            print("firmware OTA state lost (confirmed via STATUS); "
-                  "restarting transfer from scratch")
+        if patch is not None:
+            for attempt in range(2):
+                if not cmd_dbegin(ser, len(patch), len(old), len(image),
+                                  zlib.crc32(old) & 0xFFFFFFFF):
+                    break  # baseline mismatch / rejected -> full upload
+                if cmd_data(ser, patch, args.window, sub=SUB_DDATA) \
+                        and cmd_dend(ser):
+                    ok = True
+                    break
+                print("diff transfer failed; falling back to full upload")
+                ser.reset_input_buffer()
         if not ok:
-            sys.exit(3)
-        if not cmd_end(ser):
-            sys.exit(4)
+            for attempt in range(2):
+                if not cmd_begin(ser, len(image)):
+                    sys.exit(2)
+                if cmd_data(ser, image, args.window):
+                    ok = True
+                    break
+                print("firmware OTA state lost (confirmed via STATUS); "
+                      "restarting transfer from scratch")
+            if not ok:
+                sys.exit(3)
+            if not cmd_end(ser):
+                sys.exit(4)
         time.sleep(3)  # let the FC reset and the bootloader swap
     finally:
         ser.close()
