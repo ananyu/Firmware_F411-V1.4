@@ -57,16 +57,16 @@ static bool isInit = false;
 
 s32 kp = 0;
 s32 kt = 0;
-s32 SPL06RawPressure = 0;
-s32 SPL06RawTemperature = 0;
 
-static void SPL06GetPressure(void);
-
-void spl0601_get_calib_param(void)
+static bool spl0601_get_calib_param(void)
 {
 	u8 buffer[SPL06_CALIB_COEFFICIENT_LENGTH] = {0};
 	
-	i2cdevRead(I2Cx, devAddr, SPL06_COEFFICIENT_CALIB_REG, SPL06_CALIB_COEFFICIENT_LENGTH, buffer);
+	if (!i2cdevRead(I2Cx, devAddr, SPL06_COEFFICIENT_CALIB_REG, SPL06_CALIB_COEFFICIENT_LENGTH, buffer))
+	{
+        printf("Failed to read SPL06 calibration parameters\n");
+		return false;
+	}
 	
 	spl06Calib.c0 = (int16_t)buffer[0]<<4 | buffer[1]>>4;
 	spl06Calib.c0 = (spl06Calib.c0 & 0x0800) ? (spl06Calib.c0 | 0xF000) : spl06Calib.c0;
@@ -85,31 +85,88 @@ void spl0601_get_calib_param(void)
 	spl06Calib.c20 = (int16_t)buffer[12]<<8 | buffer[13];
 	spl06Calib.c21 = (int16_t)buffer[14]<<8 | buffer[15];
 	spl06Calib.c30 = (int16_t)buffer[16]<<8 | buffer[17];
+	return true;
 }
 
-void spl0601_rateset(spl06Sensor_e sensor, uint8_t measureRate, uint8_t oversamplRate)
+static bool spl06WriteAndVerify(u8 address, u8 data, u8 mask)
 {
-	u8 reg;
-	if (sensor == PRESURE_SENSOR)
-	{
-		kp = scaleFactor[oversamplRate];
-		i2cdevWriteByte(I2Cx, devAddr, SPL06_PRESSURE_CFG_REG, measureRate<<4 | oversamplRate);
-		if (oversamplRate > SPL06_OVERSAMP_8)
-		{
-			i2cdevReadByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, &reg);
-			i2cdevWriteByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, reg | 0x04);
-		}
-	}
-	else if (sensor == TEMPERATURE_SENSOR)
-	{
-		kt = scaleFactor[oversamplRate];
-		i2cdevWriteByte(I2Cx, devAddr, SPL06_TEMPERATURE_CFG_REG, measureRate<<4 | oversamplRate | 0x80);//Using mems temperature
-		if (oversamplRate > SPL06_OVERSAMP_8)
-		{
-			i2cdevReadByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, &reg);
-			i2cdevWriteByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, reg | 0x08);
-		}
-	}
+    u8 readback;
+    if (!i2cdevWriteByte(I2Cx, devAddr, address, data))
+    {
+        return false;
+    }
+    if (!i2cdevReadByte(I2Cx, devAddr, address, &readback))
+    {
+        return false;
+    }
+    return (readback & mask) == (data & mask);
+}
+
+static bool spl0601_rateset(spl06Sensor_e sensor, 
+                    uint8_t measureRate, 
+                    uint8_t oversamplRate)
+{
+	u8 cfgReg;
+    u8 cfgValue;
+    u8 cfgMask;
+    u8 shiftMask;
+    u8 reg;
+
+    if (sensor == PRESURE_SENSOR)
+    {
+        cfgReg = SPL06_PRESSURE_CFG_REG;
+        cfgValue = (measureRate << 4) | oversamplRate;
+        cfgMask = 0x77;
+        shiftMask = 0x04;
+    }
+    else if (sensor == TEMPERATURE_SENSOR)
+    {
+        cfgReg = SPL06_TEMPERATURE_CFG_REG;
+        cfgValue = (TEMPERATURE_EXTERNAL_SENSOR << 7) | (measureRate << 4) | oversamplRate;
+        cfgMask = 0xF7;
+        shiftMask = 0x08;
+    }
+    else
+    {
+        return false;
+    }
+
+    if (!spl06WriteAndVerify(cfgReg, cfgValue, cfgMask))
+    {
+        return false;
+    }
+
+    if (oversamplRate > SPL06_OVERSAMP_8)
+    {
+        if (!i2cdevReadByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, &reg))
+        {
+            return false;
+        }
+
+        reg |= shiftMask;
+
+        if (!i2cdevWriteByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, reg) ||
+            !i2cdevReadByte(I2Cx, devAddr, SPL06_INT_FIFO_CFG_REG, &reg) ||
+            !(reg & shiftMask))
+        {
+            return false;
+        }
+    }
+
+    if (sensor == PRESURE_SENSOR)
+    {
+        kp = scaleFactor[oversamplRate];
+    }
+    else if (sensor == TEMPERATURE_SENSOR)
+    {
+        kt = scaleFactor[oversamplRate];
+    }
+    else
+    {
+        return false;
+    }
+
+    return true;
 }
 
 bool SPL06Init(I2C_Dev *i2cPort)
@@ -122,7 +179,10 @@ bool SPL06Init(I2C_Dev *i2cPort)
 
     delay_ms(50);
 	
-	i2cdevReadByte(I2Cx, devAddr, SPL06_CHIP_ID, &SPL06ID);	/* 读取SPL06 ID*/
+	if(!i2cdevReadByte(I2Cx, devAddr, SPL06_CHIP_ID, &SPL06ID))	/* 读取SPL06 ID*/
+	{
+		return false;
+	}
 	
 	if(SPL06ID == SPL06_DEFAULT_CHIP_ID)
 		printf("SPL06 ID IS: 0x%X\n",SPL06ID);
@@ -130,29 +190,47 @@ bool SPL06Init(I2C_Dev *i2cPort)
         return false;
 
     //读取校准数据
-	spl0601_get_calib_param();
-	spl0601_rateset(PRESURE_SENSOR, SPL06_MWASURE_16, SPL06_OVERSAMP_64);
-	spl0601_rateset(TEMPERATURE_SENSOR, SPL06_MWASURE_16, SPL06_OVERSAMP_64);
-	
-	i2cdevWriteByte(I2Cx, devAddr, SPL06_MODE_CFG_REG, SPL06_MODE);
+	if (!spl0601_get_calib_param())
+	{
+		return false;
+	}
+    if(!spl0601_rateset(PRESURE_SENSOR, SPL06_MWASURE_16, SPL06_OVERSAMP_64) ||
+       !spl0601_rateset(TEMPERATURE_SENSOR, SPL06_MWASURE_16, SPL06_OVERSAMP_64) ||
+       !spl06WriteAndVerify(SPL06_MODE_CFG_REG, SPL06_MODE, SPL06_CONTINUOUS_MODE))
+    {
+        return false;
+    }
 
     isInit = true;
     return true;
 }
 
-void SPL06GetPressure(void)
+static bool spl06ReadRawData(int32_t *rawPressure, int32_t *rawTemperature)
 {
     u8 data[SPL06_DATA_FRAME_SIZE];
 
-    i2cdevRead(I2Cx, devAddr, SPL06_PRESSURE_MSB_REG, SPL06_DATA_FRAME_SIZE, data);
-	SPL06RawPressure = (int32_t)data[0]<<16 | (int32_t)data[1]<<8 | (int32_t)data[2];
-    SPL06RawPressure = (SPL06RawPressure & 0x800000) ? (0xFF000000 | SPL06RawPressure) : SPL06RawPressure;
-	
-    SPL06RawTemperature = (int32_t)data[3]<<16 | (int32_t)data[4]<<8 | (int32_t)data[5];
-	SPL06RawTemperature = (SPL06RawTemperature & 0x800000) ? (0xFF000000 | SPL06RawTemperature) : SPL06RawTemperature;
+    if (!i2cdevRead(I2Cx, devAddr, SPL06_PRESSURE_MSB_REG,
+                    SPL06_DATA_FRAME_SIZE, data))
+    {
+        return false;
+    }
+
+    *rawPressure = (int32_t)data[0] << 16 |
+                   (int32_t)data[1] << 8 |
+                   (int32_t)data[2];
+    *rawPressure = (*rawPressure & 0x800000) ?
+                   (0xFF000000 | *rawPressure) : *rawPressure;
+
+    *rawTemperature = (int32_t)data[3] << 16 |
+                      (int32_t)data[4] << 8 |
+                      (int32_t)data[5];
+    *rawTemperature = (*rawTemperature & 0x800000) ?
+                      (0xFF000000 | *rawTemperature) : *rawTemperature;
+
+    return true;
 }
 
-float spl0601_get_temperature(int32_t rawTemperature)
+static float spl0601_get_temperature(int32_t rawTemperature)
 {
     float fTCompensate;
     float fTsc;
@@ -163,7 +241,7 @@ float spl0601_get_temperature(int32_t rawTemperature)
 }
 
 
-float spl0601_get_pressure(int32_t rawPressure, int32_t rawTemperature)
+static float spl0601_get_pressure(int32_t rawPressure, int32_t rawTemperature)
 {
     float fTsc, fPsc;
     float qua2, qua3;
@@ -180,27 +258,52 @@ float spl0601_get_pressure(int32_t rawPressure, int32_t rawTemperature)
     return fPCompensate;
 }
 
-void SPL06GetData(float* pressure, float* temperature, float* asl)
+static float SPL06PressureToAltitude(float pressure/*, float* groundPressure, float* groundTemp*/);
+
+static bool spl06PressureDataReady(void)
 {
-    static float t;
-    static float p;
-	
-	SPL06GetPressure();
+    u8 status;
 
-	t = spl0601_get_temperature(SPL06RawTemperature);		
-	p = spl0601_get_pressure(SPL06RawPressure, SPL06RawTemperature);		
+    if (!i2cdevReadByte(I2Cx, devAddr, SPL06_MODE_CFG_REG, &status))
+    {
+        return false;
+    }
 
-//	pressureFilter(&p,pressure);
-	*temperature = (float)t;/*单位度*/
-	*pressure = (float)p ;	/*单位hPa*/	
-	
-	*asl=SPL06PressureToAltitude(*pressure);	/*转换成海拔*/	
+    return (status & SPL06_MEAS_CFG_PRS_RDY) != 0U;
+}
+
+bool SPL06GetData(float *pressure, float *temperature, float *asl)
+{
+    if(!isInit)
+    {
+        return false;
+    }
+    int32_t rawPressure;
+    int32_t rawTemperature;
+    float compensatedTemperature;
+    float compensatedPressure;
+
+    if (pressure == NULL || temperature == NULL || asl == NULL ||
+        !spl06PressureDataReady() ||
+        !spl06ReadRawData(&rawPressure, &rawTemperature))
+    {
+        return false;
+    }
+
+    compensatedTemperature = spl0601_get_temperature(rawTemperature);
+    compensatedPressure = spl0601_get_pressure(rawPressure, rawTemperature);
+
+    *temperature = compensatedTemperature;
+    *pressure = compensatedPressure / 100.0f;
+    *asl = SPL06PressureToAltitude(*pressure);
+
+    return true;
 }
 
 /**
  * Converts pressure to altitude above sea level (ASL) in meters
  */
-float SPL06PressureToAltitude(float pressure/*, float* groundPressure, float* groundTemp*/)
+static float SPL06PressureToAltitude(float pressure/*, float* groundPressure, float* groundTemp*/)
 {	
     if(pressure)
     {

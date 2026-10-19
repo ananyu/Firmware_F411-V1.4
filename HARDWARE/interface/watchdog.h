@@ -17,6 +17,7 @@
 ********************************************************************************/
 
 #define WATCHDOG_RESET_MS 	150	/*看门狗复位时间*/
+#define WATCHDOG_FEED_INTERVAL_MS     50	/*喂狗间隔时间*/
 #define watchdogReset() 	(IWDG_ReloadCounter())
 
 

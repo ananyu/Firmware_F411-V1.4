@@ -497,6 +497,8 @@ void mpu9250SetDHPFMode(u8 mode);
 
 // ACCEL_CONFIG2 register
 void mpu9250SetAccelDLPF(uint8_t range);
+void mpu9250SetAccelFchoiceb(uint8_t mode);
+void mpu9250SetGyroFchoiceb(uint8_t mode);
 
 // FF_THR register
 u8 mpu9250GetFreefallDetectionThreshold(void);

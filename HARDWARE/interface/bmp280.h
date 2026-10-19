@@ -53,15 +53,16 @@
 #define BMP280_CONFIG_F8		(0x3<<2)
 #define BMP280_CONFIG_F16		(0x4<<2)
 
+#define BMP280_STATUS_MEASURING            (1U << 3)  /* Measuring status */
+
 
 
 bool bmp280Init(I2C_Dev *i2cPort, u8 address);
-void bmp280GetData(float* pressure, float* temperature, float* asl);
-
-u32 bmp280CompensateT(s32 adcT);
-u32 bmp280CompensateP(s32 adcP);
-void pressureFilter(float* in, float* out);/*限幅平均滤波法*/
-float bmp280PressureToAltitude(float* pressure/*, float* groundPressure, float* groundTemp*/);
+bool BMP280GetData(float* pressure, float* temperature, float* asl);
+// s32 bmp280CompensateT(s32 adcT);
+// u32 bmp280CompensateP(s32 adcP);
+// void pressureFilter(float* in, float* out);/*限幅平均滤波法*/
+// float bmp280PressureToAltitude(float* pressure/*, float* groundPressure, float* groundTemp*/);
 
 #endif
 

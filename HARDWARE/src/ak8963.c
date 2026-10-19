@@ -20,6 +20,10 @@ static uint8_t devAddr;
 static u8 buffer[6];
 static I2C_Dev *I2Cx;
 static bool isInit;
+static float ak8963FactoryAdjustmentFactor(u8 asa)
+{
+	return ((float)asa - 128.0f) / 256.0f + 1.0f;
+}
 
 static bool ak8963EvaluateSelfTest(s16 min, s16 max, s16 value, char* string);
 
@@ -186,12 +190,38 @@ void ak8963DisableI2C()
 }
 
 // ASA* ¼Ä´æÆ÷
-void ak8963GetAdjustment(s8 *x, s8 *y, s8 *z)
+void ak8963GetAdjustment(u8 *x, u8 *y, u8 *z)
 {
 	i2cdevRead(I2Cx, devAddr, AK8963_RA_ASAX, 3, buffer);
 	*x = buffer[0];
 	*y = buffer[1];
 	*z = buffer[2];
+}
+
+bool ak8963ReadFactoryAdjustment(float adjustment[3])
+{
+	u8 asa[3];
+
+	if (adjustment == 0)
+	{
+		return false;
+	}
+
+	ak8963SetMode(AK8963_MODE_POWERDOWN);
+	delay_ms(1);
+	ak8963SetMode(AK8963_MODE_FUSEROM);
+	delay_ms(1);
+	if (!i2cdevRead(I2Cx, devAddr, AK8963_RA_ASAX, 3, asa))
+	{
+		return false;
+	}
+
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		adjustment[axis] = ak8963FactoryAdjustmentFactor(asa[axis]);
+	}
+
+	return true;
 }
 void ak8963SetAdjustment(s8 x, s8 y, s8 z)
 {

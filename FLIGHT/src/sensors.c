@@ -3,6 +3,7 @@
 #include "delay.h"
 #include "config.h"
 #include "config_param.h"
+#include "mag_calibration.h"
 #include "ledseq.h"
 #include "mpu9250.h"
 #include "sensors.h"
@@ -99,6 +100,11 @@ static lpf2pData gyroLpf[3];
 static bool isMPUPresent=false;
 static bool isMagPresent=false;
 static bool isBaroPresent=false;
+static bool magCalibrationActive = false;
+static u16 magCalibrationSamples = 0;
+static float magCalibrationMin[3];
+static float magCalibrationMax[3];
+static float magFactoryAdjustment[3] = {1.0f, 1.0f, 1.0f};
 
 /*IMU FIFO相关计数器,调试使用*/
 static u32 imuFifoBacklogWarningCount;
@@ -109,10 +115,10 @@ enum {IDLE, BMP280, SPL06}baroType = IDLE;
 
 //static uint8_t buffer[SENSORS_MPU9250_BUFF_LEN + SENSORS_MAG_BUFF_LEN + SENSORS_BARO_BUFF_LEN] = {0};
 
-static uint8_t imuBuffer[SENSORS_MPU9250_BUFF_LEN];
+// static uint8_t imuBuffer[SENSORS_MPU9250_BUFF_LEN];
 static uint8_t magBuffer[SENSORS_MAG_BUFF_LEN];
-// static uint8_t baroBuffer[SENSORS_BARO_DATA_LEN];
-static uint8_t baroBuffer[SENSORS_BARO_BUFF_LEN];
+
+
 
 static xQueueHandle magnetometerDataQueue;
 static xQueueHandle barometerDataQueue;
@@ -133,9 +139,9 @@ static void sensorResetImuFifo(void);
 
 
 /*从队列读取磁力计数据*/
-bool sensorsReadMag(Axis3f *mag)
+bool sensorsReadMag(magSample_t *sample)
 {
-	return (pdTRUE == xQueueReceive(magnetometerDataQueue, mag, 0));
+	return (pdTRUE == xQueueReceive(magnetometerDataQueue, sample, 0));
 }
 /*从队列读取气压数据*/
 bool sensorsReadBaro(baro_t *baro)
@@ -215,9 +221,16 @@ void sensorsDeviceInit(void)
 	ak8963Init(SENSORS_I2CBUS, AK8963_DEFAULT_ADDRESS);	//ak8963磁力计初始化
 	if (ak8963TestConnection() == true)
 	{
-		isMagPresent = true;
-		ak8963SetMode(AK8963_MODE_16BIT | AK8963_MODE_CONT2); // 16bit 100Hz
-		printf("AK8963 I2C connection [OK].\n");
+		if (ak8963ReadFactoryAdjustment(magFactoryAdjustment))
+		{
+			isMagPresent = true;
+			ak8963SetMode(AK8963_MODE_16BIT | AK8963_MODE_CONT2); // 16bit 100Hz
+			printf("AK8963 I2C connection [OK].\n");
+		}
+		else
+		{
+			printf("AK8963 factory adjustment [FAIL].\n");
+		}
 	}
 	else
 	{
@@ -243,7 +256,7 @@ void sensorsDeviceInit(void)
 	}
 
 	/*创建传感器数据队列*/
-	magnetometerDataQueue = xQueueCreate(1, sizeof(Axis3f));
+	magnetometerDataQueue = xQueueCreate(1, sizeof(magSample_t));
 	barometerDataQueue = xQueueCreate(1, sizeof(baro_t));
 	imuSampleQueue = xQueueCreate(SENSORS_IMU_FIFO_QUEUE_LEN, sizeof(imuSample_t));
 }
@@ -428,45 +441,119 @@ static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBias
 	return gyroBiasRunning.isBiasValueFound;
 }
 
-/*处理气压计数据*/
-void processBarometerMeasurements(const u8 *buffer)
-{
-	static float temp;
-    static float pressure;
-	
-	if (baroType == BMP280)
-	{
-		// Check if there is a new data update
-		//if ((buffer[0] & 0x08)) /*bit3=1 转换完成*/
-		//{
-			s32 rawPressure = (s32)((((u32)(buffer[1])) << 12) | (((u32)(buffer[2])) << 4) | ((u32)buffer[3] >> 4));
-			s32 rawTemp = (s32)((((u32)(buffer[4])) << 12) | (((u32)(buffer[5])) << 4) | ((u32)buffer[6] >> 4));
-			temp = bmp280CompensateT(rawTemp)/100.0f;		
-			pressure = bmp280CompensateP(rawPressure)/25600.0f;			
 
-			//pressureFilter(&pressure, &slowSensorData.baro.pressure);	
-			slowSensorData.baro.pressure = pressure;
-			slowSensorData.baro.temperature = (float)temp;	/*单位度*/
-			slowSensorData.baro.asl = bmp280PressureToAltitude(&pressure) * 100.f;	/*转换成海拔*/
-		//}
-	}
-	else if (baroType == SPL06)
-	{
-		s32 rawPressure = (int32_t)buffer[1]<<16 | (int32_t)buffer[2]<<8 | (int32_t)buffer[3];
-		rawPressure = (rawPressure & 0x800000) ? (0xFF000000 | rawPressure) : rawPressure;
-		
-		s32 rawTemp = (int32_t)buffer[4]<<16 | (int32_t)buffer[5]<<8 | (int32_t)buffer[6];
-		rawTemp = (rawTemp & 0x800000) ? (0xFF000000 | rawTemp) : rawTemp;
-		
-		temp = spl0601_get_temperature(rawTemp);
-		pressure = spl0601_get_pressure(rawPressure, rawTemp);
-		slowSensorData.baro.pressure = pressure / 100.0f;
-		slowSensorData.baro.temperature = (float)temp; /*单位度*/
-		slowSensorData.baro.asl = SPL06PressureToAltitude(slowSensorData.baro.pressure) * 100.f; //cm
-	}
-
-}
 /*处理磁力计数据*/
+void sensorsMagCalibrationStart(void)
+{
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		magCalibrationMin[axis] = 3.4e38f;
+		magCalibrationMax[axis] = -3.4e38f;
+	}
+	magCalibrationSamples = 0;
+	magCalibrationActive = true;
+}
+
+void sensorsMagCalibrationCancel(void)
+{
+	magCalibrationActive = false;
+	magCalibrationSamples = 0;
+}
+
+bool sensorsMagCalibrationFinish(void)
+{
+	magCalibrationResult_t result;
+	float minimum[3];
+	float maximum[3];
+	float fieldMagnitude = 0.0f;
+
+	if (!magCalibrationActive || magCalibrationSamples < 200U)
+	{
+		return false;
+	}
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		minimum[axis] = magCalibrationMin[axis];
+		maximum[axis] = magCalibrationMax[axis];
+	}
+	if (!magCalibrationCompute(minimum, maximum, &result))
+	{
+		return false;
+	}
+	for (u8 axis = 0; axis < 3; axis++)
+	{
+		if (result.scale[axis] < 0.5f || result.scale[axis] > 2.0f) return false;
+		configParam.magCalibration.offset[axis] = result.offset[axis];
+		configParam.magCalibration.scale[axis] = result.scale[axis];
+		fieldMagnitude += 0.5f * (maximum[axis] - minimum[axis]) * result.scale[axis];
+	}
+	configParam.magCalibration.fieldMagnitude = fieldMagnitude / 3.0f;
+	configParam.magCalibration.valid = true;
+	magCalibrationActive = false;
+	saveConfigRequest();
+	return true;
+}
+static Axis3f sensorsMapMagToBody(const Axis3f raw)
+{
+	Axis3f body;
+	body.x = raw.y;
+	body.y = -raw.x;
+	body.z = raw.z;
+	return body;
+}
+
+static bool sensorsProcessMagSample(const uint8_t *buffer, magSample_t *sample)
+{
+	Axis3f raw;
+	Axis3f field;
+	float values[3];
+	magCalibrationResult_t calibration;
+
+	if (!(buffer[0] & (1U << AK8963_ST1_DRDY_BIT)) ||
+		(buffer[7] & (1U << AK8963_ST2_DERR_BIT)) ||
+		(buffer[7] & (1U << AK8963_ST2_HOFL_BIT)))
+	{
+		return false;
+	}
+
+	magRaw.x = (int16_t)(((int16_t)buffer[2] << 8) | buffer[1]);
+	magRaw.y = (int16_t)(((int16_t)buffer[4] << 8) | buffer[3]);
+	magRaw.z = (int16_t)(((int16_t)buffer[6] << 8) | buffer[5]);
+	raw.x = ((float)magRaw.x * magFactoryAdjustment[0]) / MAG_GAUSS_PER_LSB;
+	raw.y = ((float)magRaw.y * magFactoryAdjustment[1]) / MAG_GAUSS_PER_LSB;
+	raw.z = ((float)magRaw.z * magFactoryAdjustment[2]) / MAG_GAUSS_PER_LSB;
+	field = sensorsMapMagToBody(raw);
+
+	if (magCalibrationActive)
+	{
+		for (u8 axis = 0; axis < 3; axis++)
+		{
+			if (field.axis[axis] < magCalibrationMin[axis]) magCalibrationMin[axis] = field.axis[axis];
+			if (field.axis[axis] > magCalibrationMax[axis]) magCalibrationMax[axis] = field.axis[axis];
+		}
+		magCalibrationSamples++;
+	}
+	if (configParam.magCalibration.valid)
+	{
+		for (u8 axis = 0; axis < 3; axis++)
+		{
+			calibration.offset[axis] = configParam.magCalibration.offset[axis];
+			calibration.scale[axis] = configParam.magCalibration.scale[axis];
+			values[axis] = field.axis[axis];
+		}
+		magCalibrationApply(&calibration, values, values);
+		for (u8 axis = 0; axis < 3; axis++)
+		{
+			field.axis[axis] = values[axis];
+		}
+	}
+
+	sample->field = field;
+	sample->magnitude = sqrtf(field.x * field.x + field.y * field.y + field.z * field.z);
+	sample->timestamp = (u32)xTaskGetTickCount();
+	sample->valid = sample->magnitude > 0.0f;
+	return sample->valid;
+}
 void processMagnetometerMeasurements(const uint8_t *buffer)
 {
 	if (buffer[0] & (1 << AK8963_ST1_DRDY_BIT)) 
@@ -645,49 +732,60 @@ static void sensorsTaskSlow(void *param)
 {
 	(void)param;
 	TickType_t lastWakeTime = xTaskGetTickCount();
-	uint8_t slowTick = 0;
+	
 
 	while (1)
 	{
 		//vTaskDelay(10);	//延时10ms，100Hz
 		if (isMagPresent)
 		{
-			i2cdevRead(SENSORS_I2CBUS, AK8963_ADDRESS_00, AK8963_RA_ST1, SENSORS_MAG_BUFF_LEN, magBuffer);
-			processMagnetometerMeasurements(&(magBuffer[0]));
-			xQueueOverwrite(magnetometerDataQueue, &slowSensorData.mag);
+			magSample_t sample;
+			i2cdevRead(I2C1_DEV, AK8963_ADDRESS_00, AK8963_RA_ST1, SENSORS_MAG_BUFF_LEN, magBuffer);
+			if (sensorsProcessMagSample(&(magBuffer[0]), &sample))
+			{
+				xQueueOverwrite(magnetometerDataQueue, &sample);
+			}
 		}
 		
 		if (isBaroPresent)
 		{
-			if((slowTick & 0x01) == 0)	//50Hz
+			float pressure;
+			float temperature;
+			float asl;
+			if (baroType == BMP280)
 			{
-				if (baroType == BMP280)
+				if (BMP280GetData(&pressure, &temperature, &asl))
 				{
-					i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_STAT_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-					i2cdevRead(SENSORS_I2CBUS, BMP280_I2C_ADDR, BMP280_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
-					processBarometerMeasurements(&(baroBuffer[0]));
-					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
-				}
-				else if (baroType == SPL06)
-				{
-					i2cdevRead(SENSORS_I2CBUS, SPL06_I2C_ADDR, SPL06_MODE_CFG_REG, SENSORS_BARO_STATUS_LEN, &baroBuffer[0]);
-					i2cdevRead(SENSORS_I2CBUS, SPL06_I2C_ADDR, SPL06_PRESSURE_MSB_REG, SENSORS_BARO_DATA_LEN, &baroBuffer[1]);
-					processBarometerMeasurements(&(baroBuffer[0]));
+					slowSensorData.baro.pressure = pressure;
+					slowSensorData.baro.temperature = temperature;
+					slowSensorData.baro.asl = asl * 100.0f;
 					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
 				}
 			}
-				
+			else if (baroType == SPL06)
+			{
+				if (SPL06GetData(&pressure, &temperature, &asl))
+				{
+					slowSensorData.baro.pressure = pressure;
+					slowSensorData.baro.temperature = temperature;
+					slowSensorData.baro.asl = asl * 100.0f;
+					xQueueOverwrite(barometerDataQueue, &slowSensorData.baro);
+				}
+			}
 		}
 
-		slowTick++;
+		
 		vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(10));	//延时10ms，100Hz
 	}
 }
 /*获取传感器数据*/
 void sensorsAcquire(sensorData_t *sensors, const u32 tick)	
 {	
+	// sensorsReadGyro(&sensors->gyro);
+	// sensorsReadAcc(&sensors->acc);
+	// sensorsReadBaro(&sensors->baro);
 	(void)tick;
-	sensors->magUpdate = sensorsReadMag(&sensors->mag);
+	// sensors->magUpdate = sensorsReadMag(&sensors->mag);
 	sensors->baroUpdate = sensorsReadBaro(&sensors->baro);
 }
 
@@ -737,9 +835,12 @@ bool getIsBaroPresent(void)
 	return isBaroPresent;
 }
 
+bool sensorsIsMagPresent(void)
+{
+	return isMagPresent;
+}
+
 bool sensorsReadImuSample(imuSample_t *sample)
 {
 	return (pdTRUE == xQueueReceive(imuSampleQueue, sample, 0));
 }
-
-

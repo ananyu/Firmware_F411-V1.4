@@ -1,0 +1,19 @@
+*** Using Compiler 'V5.06 update 5 (build 528)', folder: 'E:\study_software\software\keil_v5\ARM\ARMCC\Bin'
+Build target 'Firmware'
+compiling optical_flow.c...
+..\CORE\arm_math.h(293): warning:  #2803-D: unrecognized GCC pragma
+  #pragma GCC diagnostic push
+..\CORE\arm_math.h(294): warning:  #2803-D: unrecognized GCC pragma
+  #pragma GCC diagnostic ignored "-Wsign-conversion"
+..\CORE\arm_math.h(295): warning:  #2803-D: unrecognized GCC pragma
+  #pragma GCC diagnostic ignored "-Wconversion"
+..\CORE\arm_math.h(296): warning:  #2803-D: unrecognized GCC pragma
+  #pragma GCC diagnostic ignored "-Wunused-parameter"
+..\CORE\arm_math.h(7146): warning:  #2803-D: unrecognized GCC pragma
+  #pragma GCC diagnostic pop
+..\EXP_MODULES\src\optical_flow.c: 5 warnings, 0 errors
+linking...
+Program Size: Code=112756 RO-data=1728 RW-data=1996 ZI-data=44900  
+FromELF: creating hex file...
+"..\OBJ\Firmware_F411.axf" - 0 Error(s), 5 Warning(s).
+Build Time Elapsed:  00:00:03

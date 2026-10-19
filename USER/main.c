@@ -79,7 +79,7 @@ void vApplicationIdleHook( void )
     portTickType tickCount = getSysTickCnt();
 //这处看门狗喂狗设计可能有问题，从代码理解中，他是超过看门狗时间就喂狗，
 // 但是超过的时间设置的也是看门狗重置的时间
-    if (tickCount - tickWatchdogReset > WATCHDOG_RESET_MS)
+    if (tickCount - tickWatchdogReset > WATCHDOG_FEED_INTERVAL_MS)
     {
         tickWatchdogReset = tickCount;
         watchdogReset();

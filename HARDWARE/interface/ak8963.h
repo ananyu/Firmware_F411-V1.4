@@ -102,7 +102,8 @@ void ak8963SetSelfTest(bool enabled);// ASTC ¼Ä´æÆ÷
 void ak8963DisableI2C(void); // I2CDIS
 
 // ASA* registers
-void ak8963GetAdjustment(s8 *x, s8 *y, s8 *z);
+void ak8963GetAdjustment(u8 *x, u8 *y, u8 *z);
+bool ak8963ReadFactoryAdjustment(float adjustment[3]);
 void ak8963SetAdjustment(s8 x, s8 y, s8 z);
 uint8_t ak8963GetAdjustmentX(void);
 void ak8963SetAdjustmentX(u8 x);

@@ -586,6 +586,11 @@
               <FilePath>..\EXP_MODULES\src\optical_flow.c</FilePath>
             </File>
             <File>
+              <FileName>pmw3901.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\EXP_MODULES\src\pmw3901.c</FilePath>
+            </File>
+            <File>
               <FileName>vl53lxx.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\EXP_MODULES\src\vl53lxx.c</FilePath>
@@ -1034,6 +1039,11 @@
               <FileName>sensfusion6.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FLIGHT\src\sensfusion6.c</FilePath>
+            </File>
+            <File>
+              <FileName>mag_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FLIGHT\src\mag_calibration.c</FilePath>
             </File>
             <File>
               <FileName>sensors.c</FileName>

@@ -1,6 +1,7 @@
 #ifndef __SENSFUSION6_H
 #define __SENSFUSION6_H
 #include "stabilizer_types.h"
+#include "sensors.h"
 
 /********************************************************************************	 
  * 本程序只供学习使用，未经作者许可，不得用于其它任何用途
@@ -15,7 +16,7 @@
  * All rights reserved
 ********************************************************************************/
 
-void imuUpdate(Axis3f acc, Axis3f gyro, state_t *state , float dt);	/*数据融合 互补滤波*/
+void imuUpdate(Axis3f acc, Axis3f gyro, const magSample_t *mag, bool magHealthy, state_t *state, float dt);	/*数据融合 互补滤波*/
 bool getIsCalibrated(void);
 void imuTransformVectorBodyToEarth(Axis3f * v);	/*机体到地球*/
 void imuTransformVectorEarthToBody(Axis3f * v);	/*地球到机体*/

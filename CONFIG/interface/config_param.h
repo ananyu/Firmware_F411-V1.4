@@ -53,6 +53,15 @@ typedef struct
 	int16_t magZero[3];
 } magBias_t;
 
+typedef struct
+{
+	float offset[3];
+	float scale[3];
+	float fieldMagnitude;
+	u8 formatVersion;
+	bool valid;
+} magCalibration_t;
+
 typedef struct 
 {
     int16_t rollDeciDegrees;
@@ -71,6 +80,7 @@ typedef struct
 	float trimP;			/*pitch微调*/
 	float trimR;			/*roll微调*/
 	u16 thrustBase;			/*油门基础值*/
+	magCalibration_t magCalibration;	/*磁力计校准值*/
 } configParam_t;
 
 /* KV keys: one record per parameter field (namespace 0x00 = flight params).
@@ -84,6 +94,7 @@ typedef struct
 #define KV_TRIM_P         (KV_NS_PARAM | 0x05U)
 #define KV_TRIM_R         (KV_NS_PARAM | 0x06U)
 #define KV_THRUST_BASE    (KV_NS_PARAM | 0x07U)
+#define KV_MAG_CALIBRATION (KV_NS_PARAM | 0x08U)
  
 
 extern configParam_t configParam;

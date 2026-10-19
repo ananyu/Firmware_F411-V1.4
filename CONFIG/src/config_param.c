@@ -115,6 +115,14 @@ static configParam_t configParamDefault=
 	.trimP = 0.f,	/*pitch微调*/
 	.trimR = 0.f,	/*roll微调*/
 	.thrustBase=34000,	/*定高油门基础值*/
+	.magCalibration =
+	{
+		.offset = {0.0f, 0.0f, 0.0f},
+		.scale = {1.0f, 1.0f, 1.0f},
+		.fieldMagnitude = 0.0f,
+		.formatVersion = 1,
+		.valid = false,
+	},
 };
 
 static bool isInit = false;
@@ -155,6 +163,7 @@ void configParamInit(void)	/*参数配置初始化*/
 		ok &= kvReadWithDefault(KV_TRIM_P,      &configParam.trimP,      sizeof(configParam.trimP),      &configParamDefault.trimP);
 		ok &= kvReadWithDefault(KV_TRIM_R,      &configParam.trimR,      sizeof(configParam.trimR),      &configParamDefault.trimR);
 		ok &= kvReadWithDefault(KV_THRUST_BASE, &configParam.thrustBase, sizeof(configParam.thrustBase), &configParamDefault.thrustBase);
+		ok &= kvReadWithDefault(KV_MAG_CALIBRATION, &configParam.magCalibration, sizeof(configParam.magCalibration), &configParamDefault.magCalibration);
 	}
 
 	if (!ok)
@@ -188,6 +197,7 @@ void configParamTask(void* param)
 		kv_set(KV_TRIM_P,      &configParam.trimP,      sizeof(configParam.trimP));
 		kv_set(KV_TRIM_R,      &configParam.trimR,      sizeof(configParam.trimR));
 		kv_set(KV_THRUST_BASE, &configParam.thrustBase, sizeof(configParam.thrustBase));
+		kv_set(KV_MAG_CALIBRATION, &configParam.magCalibration, sizeof(configParam.magCalibration));
 
 		savePending = false;
 	}

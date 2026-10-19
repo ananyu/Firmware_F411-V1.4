@@ -12,6 +12,7 @@
 #include "optical_flow.h"
 #include "vl53lxx.h"
 #include "maths.h"
+#include "config_param.h"
 
 /*FreeRTOS相关头文件*/
 #include "FreeRTOS.h"
@@ -37,7 +38,8 @@ static bool isInit;
 
 
 static setpoint_t 	setpoint;	/*设置目标状态*/
-static sensorData_t sensorData;	/*传感器数据*/
+static sensorData_t sensorData;
+static magSample_t latestMag;	/*传感器数据*/
 static state_t 		state;		/*四轴姿态*/
 static control_t 	control;	/*四轴控制参数*/
 
@@ -122,6 +124,15 @@ static void fastAdjustPosZ(void)
 	}	
 }
 
+static bool magnetometerIsHealthy(const magSample_t *sample, u32 now)
+{
+	float minMagnitude = configParam.magCalibration.fieldMagnitude * 0.75f;
+	float maxMagnitude = configParam.magCalibration.fieldMagnitude * 1.25f;
+	return sensorsIsMagPresent() && configParam.magCalibration.valid && sample->valid &&
+		(now - sample->timestamp <= 50U) && sample->magnitude >= minMagnitude &&
+		sample->magnitude <= maxMagnitude;
+}
+
 void stabilizerTask(void* param)
 {
 	u32 tick = 0;
@@ -146,14 +157,15 @@ void stabilizerTask(void* param)
 		//获取磁力计和气压数据（500Hz）
 		if (RATE_DO_EXECUTE(RATE_500_HZ, tick))
 		{
-			sensorsAcquire(&sensorData, tick);				
+			sensorsAcquire(&sensorData, tick);
+			sensorsReadMag(&latestMag);				
 		}
 
 		while (sensorsReadImuSample(&imuSample))	/*读取IMU采样数据*/
 		{
 			sensorData.acc= imuSample.acc;
 			sensorData.gyro= imuSample.gyro;
-			imuUpdate(sensorData.acc, sensorData.gyro, &state, IMU_SAMPLE_DT);	/*数据融合 互补滤波*/
+			imuUpdate(sensorData.acc, sensorData.gyro, &latestMag, magnetometerIsHealthy(&latestMag, getSysTickCnt()), &state, IMU_SAMPLE_DT);	/*数据融合 互补滤波*/
 		}
 
 		//位置预估计算（250Hz）

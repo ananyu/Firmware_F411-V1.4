@@ -20,12 +20,15 @@
 /*bmp280 气压和温度过采样 工作模式*/
 #define BMP280_PRESSURE_OSR			(BMP280_OVERSAMP_8X)
 #define BMP280_TEMPERATURE_OSR		(BMP280_OVERSAMP_8X)
-#define BMP280_MODE					(BMP280_PRESSURE_OSR << 2 | BMP280_TEMPERATURE_OSR << 5 | BMP280_NORMAL_MODE)
+#define BMP280_CTRL_MEAS_FORCED		(BMP280_PRESSURE_OSR << 2 |\
+                                    (BMP280_TEMPERATURE_OSR << 5) |\
+                                    BMP280_FORCED_MODE)
 
 
 static uint8_t devAddr;
 static I2C_Dev *I2Cx;
 static bool isInit;
+static bool conversionPending = false;
 
 typedef struct 
 {
@@ -49,10 +52,10 @@ bmp280Calib  bmp280Cal;
 
 static u8 bmp280ID = 0;
 static bool isInit = false;
-static s32 bmp280RawPressure = 0;
-static s32 bmp280RawTemperature = 0;
+// static s32 bmp280RawPressure = 0;
+// static s32 bmp280RawTemperature = 0;
 
-static void bmp280GetPressure(void);
+static float bmp280PressureToAltitude(float* pressure/*, float* groundPressure, float* groundTemp*/);
 
 bool bmp280Init(I2C_Dev *i2cPort, u8 address)
 {	
@@ -72,8 +75,11 @@ bool bmp280Init(I2C_Dev *i2cPort, u8 address)
         return false;
 
     /* 读取校准数据 */
-    i2cdevRead(I2Cx, devAddr, BMP280_TEMPERATURE_CALIB_DIG_T1_LSB_REG, 24, (u8 *)&bmp280Cal);	
-	i2cdevWriteByte(I2Cx, devAddr, BMP280_CTRL_MEAS_REG, BMP280_MODE);
+    if(!i2cdevRead(I2Cx, devAddr, BMP280_TEMPERATURE_CALIB_DIG_T1_LSB_REG, 24, (u8 *)&bmp280Cal))	
+    {
+        return false;
+    }
+
 	i2cdevWriteByte(I2Cx, devAddr, BMP280_CONFIG_REG, BMP280_CONFIG_F8);		/*配置IIR滤波*/
 	
 //	printf("BMP280 Calibrate Registor Are: \r\n");
@@ -85,19 +91,31 @@ bool bmp280Init(I2C_Dev *i2cPort, u8 address)
     return true;
 }
 
-static void bmp280GetPressure(void)
+static bool bmp280ReadRawData(int32_t *rawPressure,
+                              int32_t *rawTemperature)
 {
     u8 data[BMP280_DATA_FRAME_SIZE];
 
-    // read data from sensor
-    i2cdevRead(I2Cx, devAddr, BMP280_PRESSURE_MSB_REG, BMP280_DATA_FRAME_SIZE, data);
-    bmp280RawPressure = (s32)((((uint32_t)(data[0])) << 12) | (((uint32_t)(data[1])) << 4) | ((uint32_t)data[2] >> 4));
-    bmp280RawTemperature = (s32)((((uint32_t)(data[3])) << 12) | (((uint32_t)(data[4])) << 4) | ((uint32_t)data[5] >> 4));
+    if (!i2cdevRead(I2Cx, devAddr, BMP280_PRESSURE_MSB_REG,
+                    BMP280_DATA_FRAME_SIZE, data))
+    {
+        return false;
+    }
+
+    *rawPressure = ((int32_t)data[0] << 12) |
+                   ((int32_t)data[1] << 4) |
+                   ((int32_t)data[2] >> 4);
+
+    *rawTemperature = ((int32_t)data[3] << 12) |
+                      ((int32_t)data[4] << 4) |
+                      ((int32_t)data[5] >> 4);
+
+    return true;
 }
 
 // Returns temperature in DegC, resolution is 0.01 DegC. Output value of "5123" equals 51.23 DegC
 // t_fine carries fine temperature as global value
-u32 bmp280CompensateT(s32 adcT)
+s32 bmp280CompensateT(s32 adcT)
 {
     s32 var1, var2, T;
 
@@ -166,27 +184,62 @@ static void pressureFilter(float* in, float* out)
 	}
 }
 
-void bmp280GetData(float* pressure, float* temperature, float* asl)
+bool BMP280GetData(float *pressure, float *temperature, float *asl)
 {
-    static float t;
-    static float p;
-	
-	bmp280GetPressure();
+    u8 status;
+    int32_t rawPressure;
+    int32_t rawTemperature;
+    float compensatedPressure;
 
-	t = bmp280CompensateT(bmp280RawTemperature)/100.0;		
-	p = bmp280CompensateP(bmp280RawPressure)/25600.0;		
+    if (!isInit || pressure == NULL || temperature == NULL || asl == NULL)
+    {
+        return false;
+    }
 
-	pressureFilter(&p,pressure);
-	*temperature = (float)t;/*单位度*/
-//	*pressure = (float)p ;	/*单位hPa*/	
-	
-	*asl=bmp280PressureToAltitude(pressure);	/*转换成海拔*/	
+    if (!conversionPending)
+    {
+        if (!i2cdevWriteByte(I2Cx, devAddr,
+                             BMP280_CTRL_MEAS_REG,
+                             BMP280_CTRL_MEAS_FORCED))
+        {
+            return false;
+        }
+
+        conversionPending = true;
+        return false;
+    }
+
+    if (!i2cdevReadByte(I2Cx, devAddr, BMP280_STAT_REG, &status))
+    {
+        return false;
+    }
+
+    if (status & BMP280_STATUS_MEASURING)
+    {
+        return false;
+    }
+
+    if (!bmp280ReadRawData(&rawPressure, &rawTemperature))
+    {
+        conversionPending = false;
+        return false;
+    }
+
+    *temperature = bmp280CompensateT(rawTemperature) / 100.0f;
+
+    compensatedPressure = bmp280CompensateP(rawPressure) / 25600.0f;
+    pressureFilter(&compensatedPressure, pressure);
+
+    *asl = bmp280PressureToAltitude(pressure);
+
+    conversionPending = false;
+    return true;
 }
 
 /**
  * Converts pressure to altitude above sea level (ASL) in meters
  */
-float bmp280PressureToAltitude(float* pressure/*, float* groundPressure, float* groundTemp*/)
+static float bmp280PressureToAltitude(float* pressure/*, float* groundPressure, float* groundTemp*/)
 {	
     if(*pressure > 0)
     {
