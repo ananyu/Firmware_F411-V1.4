@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include "freertos_static.h"
 #include "led.h"
 #include "ledseq.h"
 
@@ -97,11 +98,14 @@ void ledseqInit()
 			state[i][j] = LEDSEQ_STOP;
 	}
 	
-	/*创建软件定时器*/
+	/*创建软件定时器（静态存储）*/
+	DEFINE_STATIC_TIMER(ledseq[LED_NUM]);
+	DEFINE_STATIC_SEM(ledseq);
 	for(i=0; i<LED_NUM; i++)
-		timer[i] = xTimerCreate("ledseqTimer", 1000, pdFALSE, (void*)i, runLedseq);
+		timer[i] = xTimerCreateStatic("ledseqTimer", 1000, pdFALSE, (void*)i, runLedseq, &tmr_ledseq[i]);
 
-	vSemaphoreCreateBinary(ledseqSem);	/*创建一个2值信号量*/
+	ledseqSem = xSemaphoreCreateBinaryStatic(&sem_ledseq);	/*创建一个2值信号量*/
+	xSemaphoreGive(ledseqSem);	/*vSemaphoreCreateBinary 语义：创建后即释放*/
 
 	isInit = true;
 }

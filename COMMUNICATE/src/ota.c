@@ -10,6 +10,7 @@
  * task. ACKs go out both on the radio link and on the USART1 bridge.
  */
 #include <string.h>
+#include "freertos_static.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -790,7 +791,8 @@ void otaInit(void)
     if (otaIsInit) {
         return;
     }
-    otaQueue = xQueueCreate(OTA_QUEUE_LEN, sizeof(atkp_t));
+    DEFINE_STATIC_QUEUE(ota, OTA_QUEUE_LEN, sizeof(atkp_t));
+    otaQueue = xQueueCreateStatic(OTA_QUEUE_LEN, sizeof(atkp_t), sto_ota, &qbuf_ota);
     if (otaQueue == NULL) {
         for (;;) {
         }

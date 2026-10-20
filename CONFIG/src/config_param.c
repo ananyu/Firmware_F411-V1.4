@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include "freertos_static.h"
 #include <string.h>
 #include "math.h"
 #include "config.h"
@@ -172,7 +173,8 @@ void configParamInit(void)	/*参数配置初始化*/
 		memcpy((u8 *)&configParam, (u8 *)&configParamDefault, sizeof(configParam));
 	}
 
-	xSemaphore = xSemaphoreCreateBinary();
+	DEFINE_STATIC_SEM(cfgWake);
+	xSemaphore = xSemaphoreCreateBinaryStatic(&sem_cfgWake);	/*事件通知语义：创建为空，configParamTask take 等唤醒*/
 
 	isInit=true;
 }

@@ -1,4 +1,5 @@
 #include <string.h>
+#include "freertos_static.h"
 #include "ws2812.h"
 
 #include "FreeRTOS.h"
@@ -110,8 +111,10 @@ void ws2812Init(void)
 	
 	if(!isInit)	/*首次接上灯环模块*/
 	{
-		vSemaphoreCreateBinary(allLedDone);
-	}		
+		DEFINE_STATIC_SEM(ledDone);
+		allLedDone = xSemaphoreCreateBinaryStatic(&sem_ledDone);
+		xSemaphoreGive(allLedDone);	/*vSemaphoreCreateBinary 语义：创建后即释放*/
+	}
 	else
 	{
 		xSemaphoreGive(allLedDone);

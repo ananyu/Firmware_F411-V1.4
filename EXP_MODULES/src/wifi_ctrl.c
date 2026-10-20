@@ -1,4 +1,5 @@
 #include "string.h"
+#include "freertos_static.h"
 #include <math.h>
 #include "wifi_ctrl.h"
 #include "uart1.h"
@@ -66,7 +67,8 @@ void wifiModuleInit(void)
 		vTaskDelay(50);
 		uart1Init(19200);	/*串口1初始化，波特率固定19200*/
 		
-		xTaskCreate(wifiLinkTask, "WIFILINK", 150, NULL, 4, &wifCtrlTaskHandle);		/*创建通信连接任务*/
+		DEFINE_STATIC_TASK(wifi, 150);
+		wifCtrlTaskHandle = xTaskCreateStatic(wifiLinkTask, "WIFILINK", 150, NULL, 4, stk_wifi, &tcb_wifi);		/*创建通信连接任务*/
 		
 		isInit = true;
 	}

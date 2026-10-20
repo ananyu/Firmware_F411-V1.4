@@ -1,4 +1,5 @@
 #include <string.h>
+#include "freertos_static.h"
 #include "sys.h"
 #include "config.h"
 #include "uart_syslink.h"
@@ -84,14 +85,18 @@ void uartslkDmaInit(void)
 
 void uartslkInit(void)	/*串口初始化*/
 {
-	waitUntilSendDone = xSemaphoreCreateBinary(); 	/*等待发送完成 二值信号量（ISR give、任务 take，信号语义）*/
+	DEFINE_STATIC_SEM(sendDone);
+	DEFINE_STATIC_SEM(busy);
+	DEFINE_STATIC_QUEUE(slkRx, 1024, sizeof(u8));
+
+	waitUntilSendDone = xSemaphoreCreateBinaryStatic(&sem_sendDone); 	/*等待发送完成 二值信号量（ISR give、任务 take，信号语义）*/
 	/* uartBusy 是任务上下文的互斥锁（take/give 均在任务侧），必须用 mutex 获得优先级继承：
 	 * 二值信号量当互斥锁用时，低优先级持有者会被中优先级任务抢占，
 	 * 把高优先级等待者的串口访问无限期推迟（优先级反转）。
 	 * 注意：mutex 创建后即处于可用状态，不能再 xSemaphoreGive。*/
-	uartBusy = xSemaphoreCreateMutex();				/*串口忙 互斥锁*/
-	
-	uartslkDataDelivery = xQueueCreate(1024, sizeof(u8));	/*队列 1024个消息*/
+	uartBusy = xSemaphoreCreateMutexStatic(&sem_busy);	/*串口忙 互斥锁*/
+
+	uartslkDataDelivery = xQueueCreateStatic(1024, sizeof(u8), sto_slkRx, &qbuf_slkRx);	/*队列 1024个消息*/
 	ASSERT(uartslkDataDelivery);
 
 	USART_InitTypeDef USART_InitStructure;

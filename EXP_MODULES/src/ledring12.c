@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "freertos_static.h"
 #include <math.h>
 #include <string.h>
 #include "ws2812.h"
@@ -429,7 +430,8 @@ void ledring12Init(void)
 	
 	if(!isInit)	/*第一次接上灯环*/
 	{	
-		timer = xTimerCreate( "ringTimer", 50, pdTRUE, NULL, ledring12Timer);
+		DEFINE_STATIC_TIMER(ring);
+		timer = xTimerCreateStatic( "ringTimer", 50, pdTRUE, NULL, ledring12Timer, &tmr_ring);
 	}	
 	xTimerStart(timer, 100);
 

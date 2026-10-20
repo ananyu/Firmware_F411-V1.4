@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include "freertos_static.h"
 #include <string.h>
 #include <stdint.h>
 #include "config.h"
@@ -151,7 +152,9 @@ void syslinkInit()
 {
 	if(isInit) return;
 
-	vSemaphoreCreateBinary(syslinkAccess);
+	DEFINE_STATIC_SEM(slAccess);
+	syslinkAccess = xSemaphoreCreateBinaryStatic(&sem_slAccess);
+	xSemaphoreGive(syslinkAccess);	/*vSemaphoreCreateBinary 语义：创建后即释放*/
 
 	isInit = true;	
 }

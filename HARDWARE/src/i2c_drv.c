@@ -306,8 +306,8 @@ static void i2cdrvInitBus(I2cDrv* i2c)
 
 	i2cdrvDmaSetupBus(i2c);
 
-	i2c->isBusFreeSemaphore = xSemaphoreCreateBinary();
-	i2c->isBusFreeMutex = xSemaphoreCreateMutex();
+	i2c->isBusFreeSemaphore = xSemaphoreCreateBinaryStatic(&i2c->semBusFreeBuf);
+	i2c->isBusFreeMutex = xSemaphoreCreateMutexStatic(&i2c->mtxBusFreeBuf);
 }
 /**
  * ½âËøIIC×ÜÏß

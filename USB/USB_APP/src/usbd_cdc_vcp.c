@@ -30,6 +30,7 @@
 #endif /* USB_OTG_HS_INTERNAL_DMA_ENABLED */
 
 #include "usbd_cdc_vcp.h"
+#include "freertos_static.h"
 #include "usb_conf.h"
 #include "usbd_cdc_core.h"
 #include "usbd_usr.h"
@@ -236,7 +237,8 @@ void usbd_cdc_vcp_Init(void)
 		&USBD_CDC_cb,
 		&USR_cb);
 	
-	usbDataDelivery = xQueueCreate(128, sizeof(uint8_t));	/*队列 128个消息*/
+	DEFINE_STATIC_QUEUE(usbRx, 128, sizeof(uint8_t));
+	usbDataDelivery = xQueueCreateStatic(128, sizeof(uint8_t), sto_usbRx, &qbuf_usbRx);	/*队列 128个消息*/
 }
 
 bool usbGetDataWithTimout(uint8_t *c)

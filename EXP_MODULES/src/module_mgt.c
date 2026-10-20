@@ -1,4 +1,5 @@
 #include "module_mgt.h"
+#include "freertos_static.h"
 #include "module_detect.h"
 #include "ledring12.h"
 #include "wifi_ctrl.h"
@@ -95,7 +96,8 @@ static void expModuleDetect(xTimerHandle xTimer)
 //扩展模块管理任务
 void expModuleMgtTask(void* param)
 {
-	timer = xTimerCreate( "expModuleTimer", 500, pdTRUE, NULL, expModuleDetect);
+	DEFINE_STATIC_TIMER(expMgt);
+	timer = xTimerCreateStatic( "expModuleTimer", 500, pdTRUE, NULL, expModuleDetect, &tmr_expMgt);
 	xTimerStart(timer, portMAX_DELAY);
 	while(1)
 	{	

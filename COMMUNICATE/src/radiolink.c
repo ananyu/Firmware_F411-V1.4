@@ -1,4 +1,5 @@
 #include <string.h>
+#include "freertos_static.h"
 #include "config.h"
 #include "radiolink.h"
 #include "config_param.h"
@@ -123,7 +124,8 @@ void radiolinkInit(void)
 	uartslkInit();
 	
 	/*创建发送队列，CRTP_TX_QUEUE_SIZE个消息*/
-	txQueue = xQueueCreate(RADIOLINK_TX_QUEUE_SIZE, sizeof(atkp_t));
+	DEFINE_STATIC_QUEUE(rlTx, RADIOLINK_TX_QUEUE_SIZE, sizeof(atkp_t));
+	txQueue = xQueueCreateStatic(RADIOLINK_TX_QUEUE_SIZE, sizeof(atkp_t), sto_rlTx, &qbuf_rlTx);
 	ASSERT(txQueue);	//判断队列创建成功，否则阻塞停机
 	
 	isInit = true;

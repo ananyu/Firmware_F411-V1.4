@@ -1,4 +1,5 @@
 #include <math.h>
+#include "freertos_static.h"
 #include "stdio.h"
 #include "delay.h"
 #include "config.h"
@@ -14,23 +15,23 @@
 #include "spl06.h"
 
 
-/*FreeRTOSç›¸å…³å¤´æ–‡ä»¶*/
+/*FreeRTOSÏà¹ØÍ·ÎÄ¼ş*/
 #include "FreeRTOS.h"
 #include "task.h"
 
 /********************************************************************************	 
- * æœ¬ç¨‹åºåªä¾›å­¦ä¹ ä½¿ç”¨ï¼Œæœªç»ä½œè€…è®¸å¯ï¼Œä¸å¾—ç”¨äºå…¶å®ƒä»»ä½•ç”¨é€”
+ * ±¾³ÌĞòÖ»¹©Ñ§Ï°Ê¹ÓÃ£¬Î´¾­×÷ÕßĞí¿É£¬²»µÃÓÃÓÚÆäËüÈÎºÎÓÃÍ¾
  * ALIENTEK MiniFly
- * ä¼ æ„Ÿå™¨æ§åˆ¶ä»£ç 	
- * æ­£ç‚¹åŸå­@ALIENTEK
- * æŠ€æœ¯è®ºå›:www.openedv.com
- * åˆ›å»ºæ—¥æœŸ:2017/5/12
- * ç‰ˆæœ¬ï¼šV1.3
- * ç‰ˆæƒæ‰€æœ‰ï¼Œç›—ç‰ˆå¿…ç©¶ã€‚
- * Copyright(C) å¹¿å·å¸‚æ˜Ÿç¿¼ç”µå­ç§‘æŠ€æœ‰é™å…¬å¸ 2014-2024
+ * ´«¸ĞÆ÷¿ØÖÆ´úÂë	
+ * ÕıµãÔ­×Ó@ALIENTEK
+ * ¼¼ÊõÂÛÌ³:www.openedv.com
+ * ´´½¨ÈÕÆÚ:2017/5/12
+ * °æ±¾£ºV1.3
+ * °æÈ¨ËùÓĞ£¬µÁ°æ±Ø¾¿¡£
+ * Copyright(C) ¹ãÖİÊĞĞÇÒíµç×Ó¿Æ¼¼ÓĞÏŞ¹«Ë¾ 2014-2024
  * All rights reserved
 ********************************************************************************/
-//FSä¸ºè®¾ç½®é‡ç¨‹ï¼ŒLSBä¸ºè½¬åŒ–å•ä½ï¼Œå°†ä¼ æ„Ÿå™¨æ•°å€¼è½¬ä¸ºå®é™…çš„ç‰©ç†é‡
+//FSÎªÉèÖÃÁ¿³Ì£¬LSBÎª×ª»¯µ¥Î»£¬½«´«¸ĞÆ÷ÊıÖµ×ªÎªÊµ¼ÊµÄÎïÀíÁ¿
 #define SENSORS_GYRO_FS_CFG       MPU9250_GYRO_FS_2000
 #define SENSORS_DEG_PER_LSB_CFG   MPU9250_DEG_PER_LSB_2000
 
@@ -41,15 +42,15 @@
 #define SENSORS_IMU_FIFO_BACKLOG_WARN  120U
 #define SENSORS_IMU_FIFO_QUEUE_LEN  48U
 
-#define SENSORS_NBR_OF_BIAS_SAMPLES		1024	/* è®¡ç®—æ–¹å·®çš„é‡‡æ ·æ ·æœ¬ä¸ªæ•° */
-#define GYRO_VARIANCE_BASE				4000	/* é™€èºä»ªé›¶åæ–¹å·®é˜ˆå€¼ */
-#define SENSORS_ACC_SCALE_SAMPLES  		200		/* åŠ é€Ÿè®¡é‡‡æ ·ä¸ªæ•° */
+#define SENSORS_NBR_OF_BIAS_SAMPLES		1024	/* ¼ÆËã·½²îµÄ²ÉÑùÑù±¾¸öÊı */
+#define GYRO_VARIANCE_BASE				4000	/* ÍÓÂİÒÇÁãÆ«·½²îãĞÖµ */
+#define SENSORS_ACC_SCALE_SAMPLES  		200		/* ¼ÓËÙ¼Æ²ÉÑù¸öÊı */
 
-// MPU9250ä¸»æœºæ¨¡å¼è¯»å–æ•°æ® ç¼“å†²åŒºé•¿åº¦
+// MPU9250Ö÷»úÄ£Ê½¶ÁÈ¡Êı¾İ »º³åÇø³¤¶È
 #define SENSORS_MPU9250_BUFF_LEN    14		/*ACC+GYRO+TEMP*/
 #define SENSORS_MAG_BUFF_LEN       	8		/*MAG, ST1+XYZ+ST2*/
-#define SENSORS_BARO_STATUS_LEN		1		/*æ°”å‹è®¡çŠ¶æ€å¯„å­˜å™¨é•¿åº¦*/
-#define SENSORS_BARO_DATA_LEN		6		/*æ°”å‹è®¡æ•°æ®å¯„å­˜å™¨é•¿åº¦,å‹åŠ›3+æ¸©åº¦3*/
+#define SENSORS_BARO_STATUS_LEN		1		/*ÆøÑ¹¼Æ×´Ì¬¼Ä´æÆ÷³¤¶È*/
+#define SENSORS_BARO_DATA_LEN		6		/*ÆøÑ¹¼ÆÊı¾İ¼Ä´æÆ÷³¤¶È,Ñ¹Á¦3+ÎÂ¶È3*/
 #define SENSORS_BARO_BUFF_LEN       (SENSORS_BARO_STATUS_LEN + SENSORS_BARO_DATA_LEN)
 
 typedef struct
@@ -91,7 +92,7 @@ static Axis3i16	gyroRaw;
 static Axis3i16	accRaw;
 static Axis3i16 magRaw;
 
-/*ä½é€šæ»¤æ³¢å‚æ•°*/
+/*µÍÍ¨ÂË²¨²ÎÊı*/
 #define GYRO_LPF_CUTOFF_FREQ  80
 #define ACCEL_LPF_CUTOFF_FREQ 30
 static lpf2pData accLpf[3];
@@ -106,7 +107,7 @@ static float magCalibrationMin[3];
 static float magCalibrationMax[3];
 static float magFactoryAdjustment[3] = {1.0f, 1.0f, 1.0f};
 
-/*IMU FIFOç›¸å…³è®¡æ•°å™¨,è°ƒè¯•ä½¿ç”¨*/
+/*IMU FIFOÏà¹Ø¼ÆÊıÆ÷,µ÷ÊÔÊ¹ÓÃ*/
 static u32 imuFifoBacklogWarningCount;
 static u32 imuFifoOverflowCount;
 static u32 imuFifoAlignmentErrorCount;
@@ -138,50 +139,50 @@ static void sensorResetImuFifo(void);
 
 
 
-/*ä»é˜Ÿåˆ—è¯»å–ç£åŠ›è®¡æ•°æ®*/
+/*´Ó¶ÓÁĞ¶ÁÈ¡´ÅÁ¦¼ÆÊı¾İ*/
 bool sensorsReadMag(magSample_t *sample)
 {
 	return (pdTRUE == xQueueReceive(magnetometerDataQueue, sample, 0));
 }
-/*ä»é˜Ÿåˆ—è¯»å–æ°”å‹æ•°æ®*/
+/*´Ó¶ÓÁĞ¶ÁÈ¡ÆøÑ¹Êı¾İ*/
 bool sensorsReadBaro(baro_t *baro)
 {
 	return (pdTRUE == xQueueReceive(barometerDataQueue, baro, 0));
 }
-/*ä¼ æ„Ÿå™¨ä¸­æ–­åˆå§‹åŒ–*/
+/*´«¸ĞÆ÷ÖĞ¶Ï³õÊ¼»¯*/
 static void sensorsInterruptInit(void)
 {
 	GPIO_InitTypeDef GPIO_InitStructure;
 	EXTI_InitTypeDef EXTI_InitStructure;
 
-	/*ä½¿èƒ½MPU9250ä¸­æ–­*/
+	/*Ê¹ÄÜMPU9250ÖĞ¶Ï*/
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
-	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;	//å†…éƒ¨ä¸‹æ‹‰
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;	//ÄÚ²¿ÏÂÀ­
 	GPIO_Init(GPIOA, &GPIO_InitStructure);
 
-	//å…ˆæŠŠå¯¹åº”GPIOAçš„å¼•è„šè¿æ¥ä¸Šä¸­æ–­æ§åˆ¶å™¨
+	//ÏÈ°Ñ¶ÔÓ¦GPIOAµÄÒı½ÅÁ¬½ÓÉÏÖĞ¶Ï¿ØÖÆÆ÷
 	SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA, EXTI_PinSource4);
 
 	EXTI_InitStructure.EXTI_Line = EXTI_Line4;
 	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
 	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
 	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-	portDISABLE_INTERRUPTS();	//å…ˆå±è”½ä¸­æ–­ï¼Œå†è®¾ç½®è¿›å»ï¼Œä¹‹åå†æ‰“å¼€
+	portDISABLE_INTERRUPTS();	//ÏÈÆÁ±ÎÖĞ¶Ï£¬ÔÙÉèÖÃ½øÈ¥£¬Ö®ºóÔÙ´ò¿ª
 	EXTI_Init(&EXTI_InitStructure);
 	EXTI_ClearITPendingBit(EXTI_Line4);
 	portENABLE_INTERRUPTS();
 }
 
-/* ä¼ æ„Ÿå™¨å™¨ä»¶åˆå§‹åŒ– */
+/* ´«¸ĞÆ÷Æ÷¼ş³õÊ¼»¯ */
 void sensorsDeviceInit(void)
 {
 	i2cdevInit(SENSORS_I2CBUS);
 	mpu9250Init(SENSORS_I2CBUS, MPU9250_DEFAULT_ADDRESS);
 	
 	vTaskDelay(10);
-	mpu9250Reset();	// å¤ä½MPU9250
-	vTaskDelay(20);	// å»¶æ—¶ç­‰å¾…å¯„å­˜å™¨å¤ä½
+	mpu9250Reset();	// ¸´Î»MPU9250
+	vTaskDelay(20);	// ÑÓÊ±µÈ´ı¼Ä´æÆ÷¸´Î»
 	
 	u8 temp = mpu9250GetDeviceID();
 	if (temp == MPU9250_WHO_AM_I_VALUE)
@@ -194,23 +195,23 @@ void sensorsDeviceInit(void)
 		printf("MPU9250 I2C connection [FAIL].\n");
 	}
 	
-	mpu9250SetSleepEnabled(false);	// å”¤é†’MPU9250
+	mpu9250SetSleepEnabled(false);	// »½ĞÑMPU9250
 	vTaskDelay(10);		
-	mpu9250SetClockSource(MPU9250_CLOCK_PLL_XGYRO);	// è®¾ç½®Xè½´é™€èºä½œä¸ºæ—¶é’Ÿï¼Œæé«˜ç¨³å®šæ€§
-	vTaskDelay(10);		// å»¶æ—¶ç­‰å¾…æ—¶é’Ÿç¨³å®š	
-	mpu9250SetTempSensorEnabled(true);	// ä½¿èƒ½æ¸©åº¦ä¼ æ„Ÿå™¨	
-	mpu9250SetIntEnabled(false);		// å…³é—­ä¸­æ–­	
-	mpu9250SetI2CBypassEnabled(true);	// æ—è·¯æ¨¡å¼ï¼Œç£åŠ›è®¡å’Œæ°”å‹è¿æ¥åˆ°ä¸»IIC	
-	mpu9250SetFullScaleGyroRange(SENSORS_GYRO_FS_CFG);	// è®¾ç½®é™€èºé‡ç¨‹	
-	mpu9250SetFullScaleAccelRange(SENSORS_ACCEL_FS_CFG);// è®¾ç½®åŠ é€Ÿè®¡é‡ç¨‹	
+	mpu9250SetClockSource(MPU9250_CLOCK_PLL_XGYRO);	// ÉèÖÃXÖáÍÓÂİ×÷ÎªÊ±ÖÓ£¬Ìá¸ßÎÈ¶¨ĞÔ
+	vTaskDelay(10);		// ÑÓÊ±µÈ´ıÊ±ÖÓÎÈ¶¨	
+	mpu9250SetTempSensorEnabled(true);	// Ê¹ÄÜÎÂ¶È´«¸ĞÆ÷	
+	mpu9250SetIntEnabled(false);		// ¹Ø±ÕÖĞ¶Ï	
+	mpu9250SetI2CBypassEnabled(true);	// ÅÔÂ·Ä£Ê½£¬´ÅÁ¦¼ÆºÍÆøÑ¹Á¬½Óµ½Ö÷IIC	
+	mpu9250SetFullScaleGyroRange(SENSORS_GYRO_FS_CFG);	// ÉèÖÃÍÓÂİÁ¿³Ì	
+	mpu9250SetFullScaleAccelRange(SENSORS_ACCEL_FS_CFG);// ÉèÖÃ¼ÓËÙ¼ÆÁ¿³Ì	
 	
-	mpu9250SetAccelFchoiceb(MPU9250_ACCEL_FCHOICE_B_DLPF); // é€‰æ‹©åŠ é€Ÿåº¦è®¡ DLPF è·¯å¾„
-	mpu9250SetAccelDLPF(MPU9250_ACCEL_DLPF_CFG_3);         // A_DLPF_CFG=3ï¼Œçº¦ 44.8Hz
-	mpu9250SetGyroFchoiceb(MPU9250_GYRO_FCHOICE_B_DLPF);   // é€‰æ‹©é™€èºä»ª DLPF è·¯å¾„
-	mpu9250SetDLPFMode(MPU9250_DLPF_BW_92);                // DLPF_CFG=2ï¼Œé™€èºä»ªçº¦ 92Hz
-	mpu9250SetRate(0);// è®¾ç½®é‡‡æ ·é€Ÿç‡: 1000 / (1 + 0) = 1000Hz
+	mpu9250SetAccelFchoiceb(MPU9250_ACCEL_FCHOICE_B_DLPF); // Ñ¡Ôñ¼ÓËÙ¶È¼Æ DLPF Â·¾¶
+	mpu9250SetAccelDLPF(MPU9250_ACCEL_DLPF_CFG_3);         // A_DLPF_CFG=3£¬Ô¼ 44.8Hz
+	mpu9250SetGyroFchoiceb(MPU9250_GYRO_FCHOICE_B_DLPF);   // Ñ¡ÔñÍÓÂİÒÇ DLPF Â·¾¶
+	mpu9250SetDLPFMode(MPU9250_DLPF_BW_92);                // DLPF_CFG=2£¬ÍÓÂİÒÇÔ¼ 92Hz
+	mpu9250SetRate(0);// ÉèÖÃ²ÉÑùËÙÂÊ: 1000 / (1 + 0) = 1000Hz
 
-	for (u8 i = 0; i < 3; i++)// åˆå§‹åŒ–åŠ é€Ÿè®¡å’Œé™€èºäºŒé˜¶ä½é€šæ»¤æ³¢
+	for (u8 i = 0; i < 3; i++)// ³õÊ¼»¯¼ÓËÙ¼ÆºÍÍÓÂİ¶ş½×µÍÍ¨ÂË²¨
 	{
 		lpf2pInit(&gyroLpf[i], 1000, GYRO_LPF_CUTOFF_FREQ);
 		lpf2pInit(&accLpf[i],  1000, ACCEL_LPF_CUTOFF_FREQ);
@@ -218,7 +219,7 @@ void sensorsDeviceInit(void)
 
 
 #ifdef SENSORS_ENABLE_MAG_AK8963
-	ak8963Init(SENSORS_I2CBUS, AK8963_DEFAULT_ADDRESS);	//ak8963ç£åŠ›è®¡åˆå§‹åŒ–
+	ak8963Init(SENSORS_I2CBUS, AK8963_DEFAULT_ADDRESS);	//ak8963´ÅÁ¦¼Æ³õÊ¼»¯
 	if (ak8963TestConnection() == true)
 	{
 		if (ak8963ReadFactoryAdjustment(magFactoryAdjustment))
@@ -238,13 +239,13 @@ void sensorsDeviceInit(void)
 	}
 #endif
 
-	if (bmp280Init(SENSORS_I2CBUS, BMP280_I2C_ADDR) == true)//BMP280åˆå§‹åŒ–
+	if (bmp280Init(SENSORS_I2CBUS, BMP280_I2C_ADDR) == true)//BMP280³õÊ¼»¯
 	{
 		isBaroPresent = true;
 		baroType = BMP280;
 		vTaskDelay(100);
 	}
-	else if (SPL06Init(SENSORS_I2CBUS) == true)//SPL06åˆå§‹åŒ–
+	else if (SPL06Init(SENSORS_I2CBUS) == true)//SPL06³õÊ¼»¯
 	{
 		isBaroPresent = true;
 		baroType = SPL06;
@@ -255,18 +256,21 @@ void sensorsDeviceInit(void)
 		isBaroPresent = false;
 	}
 
-	/*åˆ›å»ºä¼ æ„Ÿå™¨æ•°æ®é˜Ÿåˆ—*/
-	magnetometerDataQueue = xQueueCreate(1, sizeof(magSample_t));
-	barometerDataQueue = xQueueCreate(1, sizeof(baro_t));
-	imuSampleQueue = xQueueCreate(SENSORS_IMU_FIFO_QUEUE_LEN, sizeof(imuSample_t));
+	/*´´½¨´«¸ĞÆ÷Êı¾İ¶ÓÁĞ£¨¾²Ì¬£©*/
+	DEFINE_STATIC_QUEUE(magQ, 1, sizeof(magSample_t));
+	DEFINE_STATIC_QUEUE(baroQ, 1, sizeof(baro_t));
+	DEFINE_STATIC_QUEUE(imuQ, SENSORS_IMU_FIFO_QUEUE_LEN, sizeof(imuSample_t));
+	magnetometerDataQueue = xQueueCreateStatic(1, sizeof(magSample_t), sto_magQ, &qbuf_magQ);
+	barometerDataQueue = xQueueCreateStatic(1, sizeof(baro_t), sto_baroQ, &qbuf_baroQ);
+	imuSampleQueue = xQueueCreateStatic(SENSORS_IMU_FIFO_QUEUE_LEN, sizeof(imuSample_t), sto_imuQ, &qbuf_imuQ);
 }
-/*ä¼ æ„Ÿå™¨åç½®åˆå§‹åŒ–*/
+/*´«¸ĞÆ÷Æ«ÖÃ³õÊ¼»¯*/
 static void sensorsBiasObjInit(BiasObj* bias)
 {
 	bias->isBufferFilled = false;
 	bias->bufHead = bias->buffer;
 }
-/*ä¼ æ„Ÿå™¨æµ‹è¯•*/
+/*´«¸ĞÆ÷²âÊÔ*/
 bool sensorsTest(void)
 {
 	bool testStatus = true;
@@ -282,7 +286,7 @@ bool sensorsTest(void)
 	return testStatus;
 }
 
-/*è®¡ç®—æ–¹å·®å’Œå¹³å‡å€¼*/
+/*¼ÆËã·½²îºÍÆ½¾ùÖµ*/
 static void sensorsCalculateVarianceAndMean(BiasObj* bias, Axis3f* varOut, Axis3f* meanOut)
 {
 	u32 i;
@@ -299,7 +303,7 @@ static void sensorsCalculateVarianceAndMean(BiasObj* bias, Axis3f* varOut, Axis3
 		sumsq[2] += bias->buffer[i].z * bias->buffer[i].z;
 	}
 
-	//ä¸€ç§æ–¹å·®çš„ç­‰æ•ˆè¡¨è¾¾ï¼Œ
+	//Ò»ÖÖ·½²îµÄµÈĞ§±í´ï£¬
 	varOut->x = (sumsq[0] - ((int64_t)sum[0] * sum[0]) / SENSORS_NBR_OF_BIAS_SAMPLES);
 	varOut->y = (sumsq[1] - ((int64_t)sum[1] * sum[1]) / SENSORS_NBR_OF_BIAS_SAMPLES);
 	varOut->z = (sumsq[2] - ((int64_t)sum[2] * sum[2]) / SENSORS_NBR_OF_BIAS_SAMPLES);
@@ -308,7 +312,7 @@ static void sensorsCalculateVarianceAndMean(BiasObj* bias, Axis3f* varOut, Axis3
 	meanOut->y = (float)sum[1] / SENSORS_NBR_OF_BIAS_SAMPLES;
 	meanOut->z = (float)sum[2] / SENSORS_NBR_OF_BIAS_SAMPLES;
 }
-/*ä¼ æ„Ÿå™¨æŸ¥æ‰¾åç½®å€¼*/
+/*´«¸ĞÆ÷²éÕÒÆ«ÖÃÖµ*/
 static bool sensorsFindBiasValue(BiasObj* bias)
 {
 	bool foundbias = false;
@@ -322,7 +326,7 @@ static bool sensorsFindBiasValue(BiasObj* bias)
 
 		if (variance.x < GYRO_VARIANCE_BASE && variance.y < GYRO_VARIANCE_BASE && variance.z < GYRO_VARIANCE_BASE)
 		{
-			//å¦‚æœæ–¹å·®å°äºé˜ˆå€¼ï¼Œè®¤ä¸ºæ‰¾åˆ°äº†åç½®å€¼ï¼Œä¿å­˜å¹³å‡å€¼åˆ°biasç»“æ„ä½“ä¸­ï¼Œå¹¶è®¾ç½®æ ‡å¿—ä½
+			//Èç¹û·½²îĞ¡ÓÚãĞÖµ£¬ÈÏÎªÕÒµ½ÁËÆ«ÖÃÖµ£¬±£´æÆ½¾ùÖµµ½bias½á¹¹ÌåÖĞ£¬²¢ÉèÖÃ±êÖ¾Î»
 			bias->bias.x = mean.x;
 			bias->bias.y = mean.y;
 			bias->bias.z = mean.z;
@@ -336,52 +340,53 @@ static bool sensorsFindBiasValue(BiasObj* bias)
 
 static void sensorSetupImuDataReadyInterrupt(void)
 {
-	mpu9250SetInterruptMode(0); 		// ä¸­æ–­é«˜ç”µå¹³æœ‰æ•ˆ
-	mpu9250SetInterruptDrive(0); 		// æ¨æŒ½è¾“å‡º
-	mpu9250SetInterruptLatch(0); 		// ä¸­æ–­é”å­˜æ¨¡å¼(0=50us-pulse, 1=latch-until-int-cleared)
-	mpu9250SetInterruptLatchClear(1); 	// ä¸­æ–­æ¸…é™¤æ¨¡å¼(0=status-read-only, 1=any-register-read)
+	mpu9250SetInterruptMode(0); 		// ÖĞ¶Ï¸ßµçÆ½ÓĞĞ§
+	mpu9250SetInterruptDrive(0); 		// ÍÆÍìÊä³ö
+	mpu9250SetInterruptLatch(0); 		// ÖĞ¶ÏËø´æÄ£Ê½(0=50us-pulse, 1=latch-until-int-cleared)
+	mpu9250SetInterruptLatchClear(1); 	// ÖĞ¶ÏÇå³ıÄ£Ê½(0=status-read-only, 1=any-register-read)
 	
-	mpu9250SetWaitForExternalSensorEnabled(false); 	// ç­‰å¾…å¤–éƒ¨ä¼ æ„Ÿå™¨æ•°æ®å°±ç»ª
-	mpu9250SetIntDataReadyEnabled(true);	// ä½¿èƒ½æ•°æ®å°±ç»ªä¸­æ–­
-	mpu9250SetIntEnabled(true);		// ä½¿èƒ½ä¸­æ–­
+	mpu9250SetWaitForExternalSensorEnabled(false); 	// µÈ´ıÍâ²¿´«¸ĞÆ÷Êı¾İ¾ÍĞ÷
+	mpu9250SetIntDataReadyEnabled(true);	// Ê¹ÄÜÊı¾İ¾ÍĞ÷ÖĞ¶Ï
+	mpu9250SetIntEnabled(true);		// Ê¹ÄÜÖĞ¶Ï
 }
 
 static void sensorSetupImuFifo(void)
 {
-	mpu9250SetFIFOEnabled(false);	// å…ˆå…³é—­FIFO
-	mpu9250SetTempFIFOEnabled(false);	// å…³é—­æ¸©åº¦æ•°æ®å†™å…¥FIFO
-	mpu9250SetAccelFIFOEnabled(true);	// ä½¿èƒ½åŠ é€Ÿè®¡æ•°æ®å†™å…¥FIFO
-	//mpu9250SetGyroFIFOEnabled(true);	// ä½¿èƒ½é™€èºä»ªæ•°æ®å†™å…¥FIFO
+	mpu9250SetFIFOEnabled(false);	// ÏÈ¹Ø±ÕFIFO
+	mpu9250SetTempFIFOEnabled(false);	// ¹Ø±ÕÎÂ¶ÈÊı¾İĞ´ÈëFIFO
+	mpu9250SetAccelFIFOEnabled(true);	// Ê¹ÄÜ¼ÓËÙ¼ÆÊı¾İĞ´ÈëFIFO
+	//mpu9250SetGyroFIFOEnabled(true);	// Ê¹ÄÜÍÓÂİÒÇÊı¾İĞ´ÈëFIFO
 	mpu9250SetXGyroFIFOEnabled(true);
 	mpu9250SetYGyroFIFOEnabled(true);
 	mpu9250SetZGyroFIFOEnabled(true);
-	mpu9250ResetFIFO();	// é‡ç½®FIFO
-	mpu9250SetFIFOEnabled(true);	// ä½¿èƒ½FIFO
+	mpu9250ResetFIFO();	// ÖØÖÃFIFO
+	mpu9250SetFIFOEnabled(true);	// Ê¹ÄÜFIFO
 }
 
 static void sensorResetImuFifo(void)
 {
-	mpu9250SetFIFOEnabled(false);	// å…ˆå…³é—­FIFO
-	mpu9250ResetFIFO();	// é‡ç½®FIFO
-	mpu9250SetFIFOEnabled(true);	// ä½¿èƒ½FIFO
+	mpu9250SetFIFOEnabled(false);	// ÏÈ¹Ø±ÕFIFO
+	mpu9250ResetFIFO();	// ÖØÖÃFIFO
+	mpu9250SetFIFOEnabled(true);	// Ê¹ÄÜFIFO
 }
 
-/* ä¼ æ„Ÿå™¨åˆå§‹åŒ– */
+/* ´«¸ĞÆ÷³õÊ¼»¯ */
 void sensorsInit(void)
 {
 	if(isInit) return;
 
-	sensorsDataReady = xSemaphoreCreateBinary();/*åˆ›å»ºä¼ æ„Ÿå™¨æ•°æ®å°±ç»ªäºŒå€¼ä¿¡å·é‡*/
-	sensorsBiasObjInit(&gyroBiasRunning);	//å°†é™€èºä»ªç¯å½¢ç¼“å†²åŒºçš„æŒ‡é’ˆæŒ‡å‘ç¼“å†²åŒºçš„å¼€å§‹ï¼Œå¹¶æŠŠæ ‡å¿—ä½æ¸…é›¶
-	sensorsDeviceInit();	/*ä¼ æ„Ÿå™¨å™¨ä»¶åˆå§‹åŒ–*/
-	sensorsInterruptInit();	/*ä¼ æ„Ÿå™¨ä¸­æ–­åˆå§‹åŒ–*/
+	DEFINE_STATIC_SEM(dataReady);
+	sensorsDataReady = xSemaphoreCreateBinaryStatic(&sem_dataReady);/*´´½¨´«¸ĞÆ÷Êı¾İ¾ÍĞ÷¶şÖµĞÅºÅÁ¿£¨´´½¨ºóÎª¿Õ£¬Ê×´Î take Ç°ÓÉ EXTI ISR give£©*/
+	sensorsBiasObjInit(&gyroBiasRunning);	//½«ÍÓÂİÒÇ»·ĞÎ»º³åÇøµÄÖ¸ÕëÖ¸Ïò»º³åÇøµÄ¿ªÊ¼£¬²¢°Ñ±êÖ¾Î»ÇåÁã
+	sensorsDeviceInit();	/*´«¸ĞÆ÷Æ÷¼ş³õÊ¼»¯*/
+	sensorsInterruptInit();	/*´«¸ĞÆ÷ÖĞ¶Ï³õÊ¼»¯*/
 	
 	isInit = true;
 }
 
 
 /**
- * å¾€æ–¹å·®ç¼“å†²åŒºï¼ˆå¾ªç¯ç¼“å†²åŒºï¼‰æ·»åŠ ä¸€ä¸ªæ–°å€¼ï¼Œç¼“å†²åŒºæ»¡åï¼Œæ›¿æ¢æ—§çš„çš„å€¼
+ * Íù·½²î»º³åÇø£¨Ñ­»·»º³åÇø£©Ìí¼ÓÒ»¸öĞÂÖµ£¬»º³åÇøÂúºó£¬Ìæ»»¾ÉµÄµÄÖµ
  */
 static void sensorsAddBiasValue(BiasObj* bias, int16_t x, int16_t y, int16_t z)
 {
@@ -390,7 +395,7 @@ static void sensorsAddBiasValue(BiasObj* bias, int16_t x, int16_t y, int16_t z)
 	bias->bufHead->z = z;
 	bias->bufHead++;
 
-	//åœ¨æŒ‡é’ˆä¸­ï¼Œå¯ä»¥ä½¿ç”¨æ•°ç»„æœ€åä¸€ä¸ªè¿›è¡Œæ¯”è¾ƒï¼Œä½†æ˜¯æ²¡æ³•è§£å¼•ç”¨å’Œæ“ä½œï¼Œåªæ˜¯ç”¨æ¥è¡¨ç¤ºå°¾éƒ¨
+	//ÔÚÖ¸ÕëÖĞ£¬¿ÉÒÔÊ¹ÓÃÊı×é×îºóÒ»¸ö½øĞĞ±È½Ï£¬µ«ÊÇÃ»·¨½âÒıÓÃºÍ²Ù×÷£¬Ö»ÊÇÓÃÀ´±íÊ¾Î²²¿
 	if (bias->bufHead >= &bias->buffer[SENSORS_NBR_OF_BIAS_SAMPLES])
 	{
 		bias->bufHead = bias->buffer;
@@ -399,7 +404,7 @@ static void sensorsAddBiasValue(BiasObj* bias, int16_t x, int16_t y, int16_t z)
 }
 
 /**
- * æ ¹æ®æ ·æœ¬è®¡ç®—é‡åŠ›åŠ é€Ÿåº¦ç¼©æ”¾å› å­
+ * ¸ù¾İÑù±¾¼ÆËãÖØÁ¦¼ÓËÙ¶ÈËõ·ÅÒò×Ó
  */
 static bool processAccScale(int16_t ax, int16_t ay, int16_t az)
 {
@@ -408,7 +413,7 @@ static bool processAccScale(int16_t ax, int16_t ay, int16_t az)
 
 	if (!accBiasFound)
 	{
-		//æ¢ç®—ï¼Œaxè¿˜æ˜¯è¯»å–çš„åŸå§‹ä¼ æ„Ÿå™¨é‡åŒ–å€¼ï¼Œéœ€è¦ä¹˜ç³»æ•°è½¬åŒ–ä¸ºæµ®ç‚¹æ•°ï¼Œç„¶åè®¡ç®—åŠ é€Ÿåº¦çš„æ¨¡é•¿ï¼Œç´¯åŠ åˆ°accScaleSumä¸­ï¼Œæœ€åé™¤ä»¥æ ·æœ¬ä¸ªæ•°å¾—åˆ°å¹³å‡å€¼ï¼Œä½œä¸ºåŠ é€Ÿåº¦çš„ç¼©æ”¾å› å­
+		//»»Ëã£¬ax»¹ÊÇ¶ÁÈ¡µÄÔ­Ê¼´«¸ĞÆ÷Á¿»¯Öµ£¬ĞèÒª³ËÏµÊı×ª»¯Îª¸¡µãÊı£¬È»ºó¼ÆËã¼ÓËÙ¶ÈµÄÄ£³¤£¬ÀÛ¼Óµ½accScaleSumÖĞ£¬×îºó³ıÒÔÑù±¾¸öÊıµÃµ½Æ½¾ùÖµ£¬×÷Îª¼ÓËÙ¶ÈµÄËõ·ÅÒò×Ó
 		accScaleSum += sqrtf(powf(ax * SENSORS_G_PER_LSB_CFG, 2) + powf(ay * SENSORS_G_PER_LSB_CFG, 2) + powf(az * SENSORS_G_PER_LSB_CFG, 2));
 		accScaleSumCount++;
 
@@ -423,7 +428,7 @@ static bool processAccScale(int16_t ax, int16_t ay, int16_t az)
 }
 
 /**
- * è®¡ç®—é™€èºæ–¹å·®
+ * ¼ÆËãÍÓÂİ·½²î
  */
 static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBiasOut)
 {
@@ -442,7 +447,7 @@ static bool processGyroBias(int16_t gx, int16_t gy, int16_t gz, Axis3f *gyroBias
 }
 
 
-/*å¤„ç†ç£åŠ›è®¡æ•°æ®*/
+/*´¦Àí´ÅÁ¦¼ÆÊı¾İ*/
 void sensorsMagCalibrationStart(void)
 {
 	for (u8 axis = 0; axis < 3; axis++)
@@ -565,16 +570,16 @@ void processMagnetometerMeasurements(const uint8_t *buffer)
 		slowSensorData.mag.x = (float)headingx / MAG_GAUSS_PER_LSB;
 		slowSensorData.mag.y = (float)headingy / MAG_GAUSS_PER_LSB;
 		slowSensorData.mag.z = (float)headingz / MAG_GAUSS_PER_LSB;		
-		magRaw.x = headingx;/*ç”¨äºä¸Šä¼ åˆ°ä¸Šä½æœº*/
+		magRaw.x = headingx;/*ÓÃÓÚÉÏ´«µ½ÉÏÎ»»ú*/
 		
 		magRaw.y = headingy;
 		magRaw.z = headingz;
 	}
 }
-/*å¤„ç†åŠ é€Ÿè®¡å’Œé™€èºä»ªæ•°æ®ï¼Œbufferé‡Œé¢è¿˜æ˜¯è¯»çš„åŸå§‹æ•°æ®ï¼Œéœ€è¦è½¬åŒ–ä¸€ä¸‹*/
+/*´¦Àí¼ÓËÙ¼ÆºÍÍÓÂİÒÇÊı¾İ£¬bufferÀïÃæ»¹ÊÇ¶ÁµÄÔ­Ê¼Êı¾İ£¬ĞèÒª×ª»¯Ò»ÏÂ*/
 void processAccGyroMeasurements(const uint8_t *buffer)
 {
-	/*æ³¨æ„ä¼ æ„Ÿå™¨è¯»å–æ–¹å‘(æ—‹è½¬270Â°xå’Œyäº¤æ¢)*/
+	/*×¢Òâ´«¸ĞÆ÷¶ÁÈ¡·½Ïò(Ğı×ª270¡ãxºÍy½»»»)*/
 	int16_t ay = (((int16_t) buffer[0]) << 8) | buffer[1];
 	int16_t ax = ((((int16_t) buffer[2]) << 8) | buffer[3]);
 	int16_t az = (((int16_t) buffer[4]) << 8) | buffer[5];
@@ -582,29 +587,29 @@ void processAccGyroMeasurements(const uint8_t *buffer)
 	int16_t gx = (((int16_t) buffer[10]) << 8) | buffer[11];
 	int16_t gz = (((int16_t) buffer[12]) << 8) | buffer[13];
 
-	accRaw.x = ax;/*ç”¨äºä¸Šä¼ åˆ°ä¸Šä½æœº*/
+	accRaw.x = ax;/*ÓÃÓÚÉÏ´«µ½ÉÏÎ»»ú*/
 	accRaw.y = ay;
 	accRaw.z = az;
-	//é™€èºä»ªæ ¡å‡†åå·®ï¼Œåé¢æ¯æ¬¡è¯»å–éƒ½éœ€è¦ å‡å»è¿™ä¸ªå€¼
+	//ÍÓÂİÒÇĞ£×¼Æ«²î£¬ºóÃæÃ¿´Î¶ÁÈ¡¶¼ĞèÒª ¼õÈ¥Õâ¸öÖµ
 	gyroRaw.x = gx - gyroBias.x;
 	gyroRaw.y = gy - gyroBias.y;
 	gyroRaw.z = gz - gyroBias.z;
-//è®¾ç½®å·²ç»æ ¡å‡†å®Œæˆæ ‡å¿—ï¼Œè®¡ç®—é™€èºé›¶åå’ŒåŠ é€Ÿè®¡ç¼©æ”¾å› å­
+//ÉèÖÃÒÑ¾­Ğ£×¼Íê³É±êÖ¾£¬¼ÆËãÍÓÂİÁãÆ«ºÍ¼ÓËÙ¼ÆËõ·ÅÒò×Ó
 	gyroBiasFound = processGyroBias(gx, gy, gz, &gyroBias);
-	//ACCæ ¡å‡†éœ€è¦ç­‰é™€èºä»ªokåæ‰è¡Œï¼Œæ‰€ä»¥å¯èƒ½å¯ä»¥ä¼˜åŒ–ä¸€ä¸‹
+	//ACCĞ£×¼ĞèÒªµÈÍÓÂİÒÇokºó²ÅĞĞ£¬ËùÒÔ¿ÉÄÜ¿ÉÒÔÓÅ»¯Ò»ÏÂ
 	if (gyroBiasFound)
 	{
-		processAccScale(ax, ay, az);	/*è®¡ç®—accScale*/
+		processAccScale(ax, ay, az);	/*¼ÆËãaccScale*/
 	}
 	
-	//å°†åŸå§‹æ•°æ®è½¬åŒ–ä¸ºç‰©ç†é‡ï¼Œé™€èºä»ªéœ€è¦å‡å»åç½®å€¼ï¼Œä¹˜ä»¥è½¬åŒ–ç³»æ•°ï¼Œå¾—åˆ°å•ä½ä¸ºÂ°/sçš„è§’é€Ÿåº¦å€¼ï¼›åŠ é€Ÿè®¡ç›´æ¥ä¹˜ä»¥è½¬åŒ–ç³»æ•°å’Œç¼©æ”¾å› å­ï¼Œå¾—åˆ°å•ä½ä¸ºgçš„åŠ é€Ÿåº¦å€¼
-	fastSensorData.gyro.x = -(gx - gyroBias.x) * SENSORS_DEG_PER_LSB_CFG;	/*å•ä½ Â°/s */
+	//½«Ô­Ê¼Êı¾İ×ª»¯ÎªÎïÀíÁ¿£¬ÍÓÂİÒÇĞèÒª¼õÈ¥Æ«ÖÃÖµ£¬³ËÒÔ×ª»¯ÏµÊı£¬µÃµ½µ¥Î»Îª¡ã/sµÄ½ÇËÙ¶ÈÖµ£»¼ÓËÙ¼ÆÖ±½Ó³ËÒÔ×ª»¯ÏµÊıºÍËõ·ÅÒò×Ó£¬µÃµ½µ¥Î»ÎªgµÄ¼ÓËÙ¶ÈÖµ
+	fastSensorData.gyro.x = -(gx - gyroBias.x) * SENSORS_DEG_PER_LSB_CFG;	/*µ¥Î» ¡ã/s */
 	fastSensorData.gyro.y =  (gy - gyroBias.y) * SENSORS_DEG_PER_LSB_CFG;
 	fastSensorData.gyro.z =  (gz - gyroBias.z) * SENSORS_DEG_PER_LSB_CFG;
 	applyAxis3fLpf(gyroLpf, &fastSensorData.gyro);	
 
-	fastSensorData.acc.x = -(ax) * SENSORS_G_PER_LSB_CFG / accScale;	/*å•ä½ g(9.8m/s^2)*/
-	fastSensorData.acc.y =  (ay) * SENSORS_G_PER_LSB_CFG / accScale;	/*é‡åŠ›åŠ é€Ÿåº¦ç¼©æ”¾å› å­accScale æ ¹æ®æ ·æœ¬è®¡ç®—å¾—å‡º*/
+	fastSensorData.acc.x = -(ax) * SENSORS_G_PER_LSB_CFG / accScale;	/*µ¥Î» g(9.8m/s^2)*/
+	fastSensorData.acc.y =  (ay) * SENSORS_G_PER_LSB_CFG / accScale;	/*ÖØÁ¦¼ÓËÙ¶ÈËõ·ÅÒò×ÓaccScale ¸ù¾İÑù±¾¼ÆËãµÃ³ö*/
 	fastSensorData.acc.z =  (az) * SENSORS_G_PER_LSB_CFG / accScale;
 
 	applyAxis3fLpf(accLpf, &fastSensorData.acc);
@@ -621,48 +626,50 @@ static void processAccGyroFifoFrame(const uint8_t *frame)
 	int16_t gx = (((int16_t)frame[8]) << 8) | frame[9];
 	int16_t gz = (((int16_t)frame[10]) << 8) | frame[11];
 
-	accRaw.x = ax;/*ç”¨äºä¸Šä¼ åˆ°ä¸Šä½æœº*/
+	accRaw.x = ax;/*ÓÃÓÚÉÏ´«µ½ÉÏÎ»»ú*/
 	accRaw.y = ay;
 	accRaw.z = az;
-	//é™€èºä»ªæ ¡å‡†åå·®ï¼Œåé¢æ¯æ¬¡è¯»å–éƒ½éœ€è¦ å‡å»è¿™ä¸ªå€¼
+	//ÍÓÂİÒÇĞ£×¼Æ«²î£¬ºóÃæÃ¿´Î¶ÁÈ¡¶¼ĞèÒª ¼õÈ¥Õâ¸öÖµ
 	gyroRaw.x = gx - gyroBias.x;
 	gyroRaw.y = gy - gyroBias.y;
 	gyroRaw.z = gz - gyroBias.z;
-//è®¾ç½®å·²ç»æ ¡å‡†å®Œæˆæ ‡å¿—ï¼Œè®¡ç®—é™€èºé›¶åå’ŒåŠ é€Ÿè®¡ç¼©æ”¾å› å­
+//ÉèÖÃÒÑ¾­Ğ£×¼Íê³É±êÖ¾£¬¼ÆËãÍÓÂİÁãÆ«ºÍ¼ÓËÙ¼ÆËõ·ÅÒò×Ó
 	gyroBiasFound = processGyroBias(gx, gy, gz, &gyroBias);
-	//ACCæ ¡å‡†éœ€è¦ç­‰é™€èºä»ªokåæ‰è¡Œï¼Œæ‰€ä»¥å¯èƒ½å¯ä»¥ä¼˜åŒ–ä¸€ä¸‹
+	//ACCĞ£×¼ĞèÒªµÈÍÓÂİÒÇokºó²ÅĞĞ£¬ËùÒÔ¿ÉÄÜ¿ÉÒÔÓÅ»¯Ò»ÏÂ
 	if (gyroBiasFound)
 	{
-		processAccScale(ax, ay, az);	/*è®¡ç®—accScale*/
+		processAccScale(ax, ay, az);	/*¼ÆËãaccScale*/
 	}
 	
-	//å°†åŸå§‹æ•°æ®è½¬åŒ–ä¸ºç‰©ç†é‡ï¼Œé™€èºä»ªéœ€è¦å‡å»åç½®å€¼ï¼Œä¹˜ä»¥è½¬åŒ–ç³»æ•°ï¼Œå¾—åˆ°å•ä½ä¸ºÂ°/sçš„è§’é€Ÿåº¦å€¼ï¼›åŠ é€Ÿè®¡ç›´æ¥ä¹˜ä»¥è½¬åŒ–ç³»æ•°å’Œç¼©æ”¾å› å­ï¼Œå¾—åˆ°å•ä½ä¸ºgçš„åŠ é€Ÿåº¦å€¼
-	fastSensorData.gyro.x = -(gx - gyroBias.x) * SENSORS_DEG_PER_LSB_CFG;	/*å•ä½ Â°/s */
+	//½«Ô­Ê¼Êı¾İ×ª»¯ÎªÎïÀíÁ¿£¬ÍÓÂİÒÇĞèÒª¼õÈ¥Æ«ÖÃÖµ£¬³ËÒÔ×ª»¯ÏµÊı£¬µÃµ½µ¥Î»Îª¡ã/sµÄ½ÇËÙ¶ÈÖµ£»¼ÓËÙ¼ÆÖ±½Ó³ËÒÔ×ª»¯ÏµÊıºÍËõ·ÅÒò×Ó£¬µÃµ½µ¥Î»ÎªgµÄ¼ÓËÙ¶ÈÖµ
+	fastSensorData.gyro.x = -(gx - gyroBias.x) * SENSORS_DEG_PER_LSB_CFG;	/*µ¥Î» ¡ã/s */
 	fastSensorData.gyro.y =  (gy - gyroBias.y) * SENSORS_DEG_PER_LSB_CFG;
 	fastSensorData.gyro.z =  (gz - gyroBias.z) * SENSORS_DEG_PER_LSB_CFG;
 	applyAxis3fLpf(gyroLpf, &fastSensorData.gyro);	
 
-	fastSensorData.acc.x = -(ax) * SENSORS_G_PER_LSB_CFG / accScale;	/*å•ä½ g(9.8m/s^2)*/
-	fastSensorData.acc.y =  (ay) * SENSORS_G_PER_LSB_CFG / accScale;	/*é‡åŠ›åŠ é€Ÿåº¦ç¼©æ”¾å› å­accScale æ ¹æ®æ ·æœ¬è®¡ç®—å¾—å‡º*/
+	fastSensorData.acc.x = -(ax) * SENSORS_G_PER_LSB_CFG / accScale;	/*µ¥Î» g(9.8m/s^2)*/
+	fastSensorData.acc.y =  (ay) * SENSORS_G_PER_LSB_CFG / accScale;	/*ÖØÁ¦¼ÓËÙ¶ÈËõ·ÅÒò×ÓaccScale ¸ù¾İÑù±¾¼ÆËãµÃ³ö*/
 	fastSensorData.acc.z =  (az) * SENSORS_G_PER_LSB_CFG / accScale;
 
 	applyAxis3fLpf(accLpf, &fastSensorData.acc);
 }
 
-/*ä¼ æ„Ÿå™¨ä»»åŠ¡*/
+/*´«¸ĞÆ÷ÈÎÎñ*/
 void sensorsTask(void *param)
 {
 	(void)param;
 
-	sensorsInit();	/*ä¼ æ„Ÿå™¨åˆå§‹åŒ–*/
-	vTaskDelay(pdMS_TO_TICKS(1000));	/*å»¶æ—¶1sï¼Œç­‰å¾…ä¼ æ„Ÿå™¨ç¨³å®š*/
-	//sensorsSetupSlaveRead();/*è®¾ç½®ä¼ æ„Ÿå™¨ä»æ¨¡å¼è¯»å–ï¼Œå…³é—­ï¼Œæ”¹ä¸ºå¿«æ…¢è¯»å–æ–¹æ¡ˆ*/
+	sensorsInit();	/*´«¸ĞÆ÷³õÊ¼»¯*/
+	vTaskDelay(pdMS_TO_TICKS(1000));	/*ÑÓÊ±1s£¬µÈ´ı´«¸ĞÆ÷ÎÈ¶¨*/
+	//sensorsSetupSlaveRead();/*ÉèÖÃ´«¸ĞÆ÷´ÓÄ£Ê½¶ÁÈ¡£¬¹Ø±Õ£¬¸ÄÎª¿ìÂı¶ÁÈ¡·½°¸*/
 	
-	sensorSetupImuFifo();	/*è®¾ç½®MPU9250 FIFOï¼ŒFIFOä½¿èƒ½åŠ é€Ÿåº¦è®¡å’Œé™€èºä»ªæ•°æ®å†™å…¥FIFO*/
-	sensorSetupImuDataReadyInterrupt();	/*è®¾ç½®MPU9250ä¸­æ–­ï¼Œæ•°æ®å°±ç»ªä¸­æ–­*/
+	sensorSetupImuFifo();	/*ÉèÖÃMPU9250 FIFO£¬FIFOÊ¹ÄÜ¼ÓËÙ¶È¼ÆºÍÍÓÂİÒÇÊı¾İĞ´ÈëFIFO*/
+	sensorSetupImuDataReadyInterrupt();	/*ÉèÖÃMPU9250ÖĞ¶Ï£¬Êı¾İ¾ÍĞ÷ÖĞ¶Ï*/
 	vTaskSuspendAll();	
-	xTaskCreate(sensorsTaskFast, "sensorsTaskFast", 350, NULL, 6, NULL);
-	xTaskCreate(sensorsTaskSlow, "sensorsTaskSlow", 300, NULL, 3, NULL);
+	DEFINE_STATIC_TASK(senFast, 350);
+	DEFINE_STATIC_TASK(senSlow, 300);
+	xTaskCreateStatic(sensorsTaskFast, "sensorsTaskFast", 350, NULL, 6, stk_senFast, &tcb_senFast);
+	xTaskCreateStatic(sensorsTaskSlow, "sensorsTaskSlow", 300, NULL, 3, stk_senSlow, &tcb_senSlow);
 	xTaskResumeAll();
 
 	vTaskDelete(NULL);
@@ -674,11 +681,11 @@ static void sensorsTaskFast(void *param)
 
 	while (1)
 	{
-		//é˜»å¡ç­‰å¾…ï¼Œç­‰æ•°æ®å‡†å¤‡å¥½å°±å¼€å§‹æ‹¿ï¼ŒxSemaphoreTakeä¼šæŠŠä¿¡å·é‡å‡1ï¼Œå¦‚æœæ²¡æœ‰ä¿¡å·é‡äº†ï¼Œ
-		// å°±ä¼šä¸€ç›´ç­‰ä¸‹å»ï¼Œç›´åˆ°æœ‰ä»»åŠ¡é‡Šæ”¾è¿™ä¸ªä¿¡å·é‡ï¼Œæˆ–è€…ç­‰åˆ°è¶…æ—¶ï¼ˆè¿™é‡Œæ˜¯æ— é™ç­‰å¾…ï¼‰
+		//×èÈûµÈ´ı£¬µÈÊı¾İ×¼±¸ºÃ¾Í¿ªÊ¼ÄÃ£¬xSemaphoreTake»á°ÑĞÅºÅÁ¿¼õ1£¬Èç¹ûÃ»ÓĞĞÅºÅÁ¿ÁË£¬
+		// ¾Í»áÒ»Ö±µÈÏÂÈ¥£¬Ö±µ½ÓĞÈÎÎñÊÍ·ÅÕâ¸öĞÅºÅÁ¿£¬»òÕßµÈµ½³¬Ê±£¨ÕâÀïÊÇÎŞÏŞµÈ´ı£©
 		if (pdTRUE == xSemaphoreTake(sensorsDataReady, portMAX_DELAY))
 		{
-			/*æ–°è¯»å–fifoæ–¹å¼*/
+			/*ĞÂ¶ÁÈ¡fifo·½Ê½*/
 			if (mpu9250GetIntFIFOBufferOverflowStatus())
 			{
 				imuFifoOverflowCount++;
@@ -712,7 +719,7 @@ static void sensorsTaskFast(void *param)
 
 				if (xQueueSendToBack(imuSampleQueue, &imuSample, 0) != pdTRUE)
 				{
-					//é˜Ÿåˆ—æ»¡äº†ï¼Œä¸¢å¼ƒæœ€æ—§çš„æ ·æœ¬
+					//¶ÓÁĞÂúÁË£¬¶ªÆú×î¾ÉµÄÑù±¾
 					imuSample_t dropSample;
 					xQueueReceive(imuSampleQueue, &dropSample, 0);
 					xQueueSendToBack(imuSampleQueue, &imuSample, 0);
@@ -736,7 +743,7 @@ static void sensorsTaskSlow(void *param)
 
 	while (1)
 	{
-		//vTaskDelay(10);	//å»¶æ—¶10msï¼Œ100Hz
+		//vTaskDelay(10);	//ÑÓÊ±10ms£¬100Hz
 		if (isMagPresent)
 		{
 			magSample_t sample;
@@ -775,10 +782,10 @@ static void sensorsTaskSlow(void *param)
 		}
 
 		
-		vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(10));	//å»¶æ—¶10msï¼Œ100Hz
+		vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(10));	//ÑÓÊ±10ms£¬100Hz
 	}
 }
-/*è·å–ä¼ æ„Ÿå™¨æ•°æ®*/
+/*»ñÈ¡´«¸ĞÆ÷Êı¾İ*/
 void sensorsAcquire(sensorData_t *sensors, const u32 tick)	
 {	
 	// sensorsReadGyro(&sensors->gyro);
@@ -799,7 +806,7 @@ void __attribute__((used)) EXTI4_Callback(void)
 		portYIELD();
 	}
 }
-/*äºŒé˜¶ä½é€šæ»¤æ³¢*/
+/*¶ş½×µÍÍ¨ÂË²¨*/
 static void applyAxis3fLpf(lpf2pData *data, Axis3f* in)
 {
 	for (u8 i = 0; i < 3; i++) 
@@ -807,12 +814,12 @@ static void applyAxis3fLpf(lpf2pData *data, Axis3f* in)
 		in->axis[i] = lpf2pApply(&data[i], in->axis[i]);
 	}
 }
-/*ä¼ æ„Ÿå™¨æ•°æ®æ ¡å‡†*/
+/*´«¸ĞÆ÷Êı¾İĞ£×¼*/
 bool sensorsAreCalibrated()	
 {
 	return gyroBiasFound;
 }
-/*ä¸Šä½æœºè·å–è¯»å–åŸå§‹æ•°æ®*/
+/*ÉÏÎ»»ú»ñÈ¡¶ÁÈ¡Ô­Ê¼Êı¾İ*/
 void getSensorRawData(Axis3i16* acc, Axis3i16* gyro, Axis3i16* mag)
 {
 	*acc = accRaw;

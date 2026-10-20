@@ -1,4 +1,5 @@
 #include "string.h"
+#include "freertos_static.h"
 #include <math.h>
 #include "spi.h"
 #include "uart1.h"
@@ -83,10 +84,13 @@ void spi2Init(void)
 	GPIO_InitTypeDef GPIO_InitStructure;
 	SPI_InitTypeDef  SPI_InitStructure;
 
-	/*创建2值信号量，使用之前先释放*/
-	txComplete = xSemaphoreCreateBinary();
-	rxComplete = xSemaphoreCreateBinary();
-	spiMutex = xSemaphoreCreateMutex();
+	/*创建2值信号量（静态存储），使用之前先释放*/
+	DEFINE_STATIC_SEM(spiTx);
+	DEFINE_STATIC_SEM(spiRx);
+	DEFINE_STATIC_SEM(spiMtx);
+	txComplete = xSemaphoreCreateBinaryStatic(&sem_spiTx);
+	rxComplete = xSemaphoreCreateBinaryStatic(&sem_spiRx);
+	spiMutex = xSemaphoreCreateMutexStatic(&sem_spiMtx);
 
 	/* 使能GPIO时钟 */
 	RCC_AHB1PeriphClockCmd(SPI_SCK_GPIO_CLK | SPI_MISO_GPIO_CLK | SPI_MOSI_GPIO_CLK, ENABLE);

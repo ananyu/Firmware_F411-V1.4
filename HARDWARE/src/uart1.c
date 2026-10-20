@@ -1,5 +1,6 @@
 /*FreeRTOS相关头文件*/
 #include "FreeRTOS.h"
+#include "freertos_static.h"
 #include "queue.h"
 #include "semphr.h"
 
@@ -80,7 +81,8 @@ void uart1Init(u32 baudrate)
 	USART_ClearFlag(USART1, USART_FLAG_RXNE);
 	USART_Cmd(USART1, ENABLE);
 
-	uart1queue = xQueueCreate(64, sizeof(u8));
+	DEFINE_STATIC_QUEUE(u1rx, 64, sizeof(u8));
+	uart1queue = xQueueCreateStatic(64, sizeof(u8), sto_u1rx, &qbuf_u1rx);
 	
 	isInit = true;
 }

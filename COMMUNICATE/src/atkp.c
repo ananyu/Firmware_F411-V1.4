@@ -1,4 +1,5 @@
 #include <string.h>
+#include "freertos_static.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -661,7 +662,8 @@ void atkpRxAnlTask(void *param)
 void atkpInit(void)
 {
 	if(isInit) return;
-	rxQueue = xQueueCreate(ATKP_RX_QUEUE_SIZE, sizeof(atkp_t));
+	DEFINE_STATIC_QUEUE(atkpRx, ATKP_RX_QUEUE_SIZE, sizeof(atkp_t));
+	rxQueue = xQueueCreateStatic(ATKP_RX_QUEUE_SIZE, sizeof(atkp_t), sto_atkpRx, &qbuf_atkpRx);
 	ASSERT(rxQueue);	//检查队列是否创建OK，关键的
 	isInit = true;
 }

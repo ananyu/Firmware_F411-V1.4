@@ -12,6 +12,7 @@
  * transfer.
  */
 #include <string.h>
+#include "freertos_static.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -173,7 +174,8 @@ void otaUartBridgeTask(void *param)
 
     (void)param;
 
-    brTxQueue = xQueueCreate(BR_TX_QUEUE_LEN, sizeof(atkp_t));
+    DEFINE_STATIC_QUEUE(brTx, BR_TX_QUEUE_LEN, sizeof(atkp_t));
+    brTxQueue = xQueueCreateStatic(BR_TX_QUEUE_LEN, sizeof(atkp_t), sto_brTx, &qbuf_brTx);
     ASSERT(brTxQueue);
     lastRxTick = xTaskGetTickCount();
 

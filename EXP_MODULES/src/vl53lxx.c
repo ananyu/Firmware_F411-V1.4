@@ -1,4 +1,5 @@
 #include "system.h"
+#include "freertos_static.h"
 #include "vl53lxx_i2c.h"
 #include "vl53lxx.h"
 #include "vl53l1_api.h"
@@ -60,7 +61,8 @@ void vl53lxxInit(void)
 		else	/*首次接上vl53l0x光流模块*/
 		{	
 			isInitvl53l0x = true;
-			xTaskCreate(vl53l0xTask, "VL5310X", 300, NULL, 5, &vl53l0xTaskHandle);	/*创建激光测距模块任务*/
+			DEFINE_STATIC_TASK(vl0x, 300);
+			vl53l0xTaskHandle = xTaskCreateStatic(vl53l0xTask, "VL5310X", 300, NULL, 5, stk_vl0x, &tcb_vl0x);  /*创建激光测距模块任务*/
 		}
 		return;
 	}			
@@ -78,7 +80,8 @@ void vl53lxxInit(void)
 		else	/*首次接上vl53l1x光流模块*/
 		{		
 			isInitvl53l1x = true;			
-			xTaskCreate(vl53l1xTask, "VL53L1X", 300, NULL, 5, &vl53l1xTaskHandle);	/*创建激光测距模块任务*/
+			DEFINE_STATIC_TASK(vl1x, 300);
+			vl53l1xTaskHandle = xTaskCreateStatic(vl53l1xTask, "VL53L1X", 300, NULL, 5, stk_vl1x, &tcb_vl1x);   /*创建激光测距模块任务*/
 		}
 		return;
 	}	

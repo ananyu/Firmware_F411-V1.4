@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include "freertos_static.h"
 #include <string.h>
 #include "config.h"
 #include "usblink.h"
@@ -52,7 +53,8 @@ void usblinkInit()
 	
 	usbd_cdc_vcp_Init();
 	/*创建发送队列，USBLINK_TX_QUEUE_SIZE个消息*/
-	txQueue = xQueueCreate(USBLINK_TX_QUEUE_SIZE, sizeof(atkp_t));
+	DEFINE_STATIC_QUEUE(usbTx, USBLINK_TX_QUEUE_SIZE, sizeof(atkp_t));
+        txQueue = xQueueCreateStatic(USBLINK_TX_QUEUE_SIZE, sizeof(atkp_t), sto_usbTx, &qbuf_usbTx);
 	ASSERT(txQueue);
 	isInit = true;
 }

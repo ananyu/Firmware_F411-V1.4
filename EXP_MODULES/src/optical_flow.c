@@ -1,4 +1,5 @@
 #include "string.h"
+#include "freertos_static.h"
 #include "stdbool.h"
 #include "optical_flow.h"
 #include "pmw3901.h"
@@ -241,7 +242,8 @@ void opticalFlowInit(void)
 		}
 		else if(opFlowTaskHandle == NULL)
 		{
-			xTaskCreate(opticalFlowTask, "OPTICAL_FLOW", 300, NULL, 4, &opFlowTaskHandle);
+			DEFINE_STATIC_TASK(opFlow, 300);
+			opFlowTaskHandle = xTaskCreateStatic(opticalFlowTask, "OPTICAL_FLOW", 300, NULL, 4, stk_opFlow, &tcb_opFlow);
 		}
 		isInit = true;
 	}

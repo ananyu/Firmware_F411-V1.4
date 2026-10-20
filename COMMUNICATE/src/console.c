@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include "freertos_static.h"
 #include "console.h"
 #include "atkp.h"
 #include "radiolink.h"
@@ -34,7 +35,9 @@ void consoleInit()
 
 	messageToPrint.msgID = UP_PRINTF;
 	messageToPrint.dataLen = 0;
-	vSemaphoreCreateBinary(synch);
+	DEFINE_STATIC_SEM(console);
+	synch = xSemaphoreCreateBinaryStatic(&sem_console);
+	xSemaphoreGive(synch);	/*vSemaphoreCreateBinary 语义：创建后即释放*/
 
 	isInit = true;
 }

@@ -1,4 +1,5 @@
 #include "kv_store.h"
+#include "freertos_static.h"
 #include "flash_map.h"
 
 #include "stm32f4xx_flash.h"
@@ -333,7 +334,8 @@ bool kv_init(void)
         return true;
     }
     if (s_lock == NULL) {
-        s_lock = xSemaphoreCreateMutex();
+        DEFINE_STATIC_SEM(kvLock);
+        s_lock = xSemaphoreCreateMutexStatic(&sem_kvLock);
     }
 
     kv_read_page_hdr(FM_KV_A_BASE, &a);

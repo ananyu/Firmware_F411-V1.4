@@ -88,6 +88,8 @@ typedef struct
 	//uint32_t nbrOfretries;                //< Retries done
 	SemaphoreHandle_t isBusFreeSemaphore; //< Semaphore to block during transaction.
 	SemaphoreHandle_t isBusFreeMutex;     //< Mutex to protect buss
+	StaticSemaphore_t semBusFreeBuf;      //< ¾²Ì¬ÐÅºÅÁ¿´æ´¢£¨configSUPPORT_STATIC_ALLOCATION£©
+	StaticSemaphore_t mtxBusFreeBuf;      //< ¾²Ì¬»¥³âÁ¿´æ´¢
 	DMA_InitTypeDef DMAStruct;            //< DMA configuration structure used during transfer setup.
 } I2cDrv;
 
