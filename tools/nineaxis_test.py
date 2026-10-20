@@ -75,12 +75,15 @@ def run(port, mode, seconds=30):
     p = Parser()
     t0 = time.time()
     mag_hist, yaw_hist = [], []
+    cov_min = [32767] * 3
+    cov_max = [-32768] * 3
     n_senser = n_status = 0
     calib_sent = False
 
     if mode == "calib":
         send_mag_calib(s)          # start
         print(">> 校准已开始：请拿起无人机缓慢绕各轴转动（约20秒）")
+        print("   关键：机头水平转一整圈(让X轴扫过正负)+翻滚到机头朝上/朝下")
         time.sleep(0.5)
 
     while time.time() - t0 < seconds:
@@ -90,6 +93,10 @@ def run(port, mode, seconds=30):
                 mx, my, mz = s16be(payload, 12), s16be(payload, 14), s16be(payload, 16)
                 mag_hist.append((time.time() - t0, mx, my, mz))
                 n_senser += 1
+                if mode == "calib":
+                    for k, v in enumerate((mx, my, mz)):
+                        cov_min[k] = min(cov_min[k], v)
+                        cov_max[k] = max(cov_max[k], v)
             elif msgid == UP_STATUS and len(payload) >= 6:
                 yaw = s16be(payload, 4) / 100.0
                 yaw_hist.append((time.time() - t0, yaw))
@@ -103,6 +110,16 @@ def run(port, mode, seconds=30):
 
     # --- mag freshness ---
     print(f"\n[遥测] UP_SENSER帧={n_senser}  UP_STATUS帧={n_status}")
+    if mode == "calib":
+        names = "XYZ"
+        for k in range(3):
+            span = cov_max[k] - cov_min[k]
+            neg = cov_min[k] < -80
+            pos = cov_max[k] > 80
+            flag = "OK" if (neg and pos) else "MISS"
+            print(f"[覆盖] axis{names[k]}: min={cov_min[k]} max={cov_max[k]} "
+                  f"span={span} 正负双向={flag}")
+        print(">> 注意：原始帧轴向=传感器轴；固件内部 body 映射 X=传感器Y")
     if len(mag_hist) < 5:
         print("[FAIL] 磁力计帧太少——样本链路或门控异常")
         return 1
@@ -115,13 +132,18 @@ def run(port, mode, seconds=30):
     mv = [m for _, m, _, _ in last]
     print(f"[磁力计] 最新 X={mv[-1]} 变化量={max(mv)-min(mv)}")
 
-    # --- yaw drift ---
+    # --- yaw drift (unwrap across +/-180 boundary) ---
     if len(yaw_hist) >= 10:
-        yaws = [y for _, y in yaw_hist]
-        # 静止漂移：取后 1/3 窗口
-        tail = yaws[len(yaws) * 2 // 3:]
+        raw = [y for _, y in yaw_hist]
+        unw = [raw[0]]
+        for a, b in zip(raw, raw[1:]):
+            d = b - a
+            while d > 180: d -= 360
+            while d < -180: d += 360
+            unw.append(unw[-1] + d)
+        tail = unw[len(unw) * 2 // 3:]
         drift = max(tail) - min(tail)
-        print(f"[yaw] 当前={yaws[-1]:.2f}°  后段窗口漂移={drift:.2f}° / "
+        print(f"[yaw] 当前={raw[-1]:.2f}°  后段窗口漂移(unwrap)={drift:.2f}° / "
               f"{(yaw_hist[-1][0]-yaw_hist[len(yaw_hist)*2//3][0]):.0f}s")
         if mode == "read":
             print(">> 基线（未校准，融合yaw关闭/纯陀螺积分）已记录")
@@ -134,4 +156,5 @@ def run(port, mode, seconds=30):
 if __name__ == "__main__":
     port = sys.argv[1] if len(sys.argv) > 1 else "COM7"
     mode = sys.argv[2] if len(sys.argv) > 2 else "read"
-    sys.exit(run(port, mode))
+    secs = int(sys.argv[3]) if len(sys.argv) > 3 else 30
+    sys.exit(run(port, mode, secs))
