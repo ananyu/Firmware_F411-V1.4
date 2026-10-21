@@ -72,6 +72,20 @@ uint32_t bbxSeqVar;
 uint32_t bbxDroppedVar;
 uint8_t  bbxFullVar;				/* 1 = sector exhausted, logging stopped */
 uint8_t  bbxBootedVar;				/* 1 = blackboxInit() completed */
+uint8_t  bbxNeedsFormatVar;			/* 1 = S4 blank/stale: send ground ERASE */
+
+/* Boot-failure forensics (non-static, read over SWD after a cold boot).
+ * bbxStageVar walks 0->4 as the boot path succeeds; wherever it stalls is
+ * the failing step. The SrVar/W0Var snapshots are taken INSIDE the
+ * masked-interrupt erase/program windows, so they survive the next boot's
+ * FLASH_ClearFlag() (which wipes the live SR). */
+uint8_t  bbxStageVar;				/* 0 none,1 entry,2 erase-ok,3 magic-ok,4 scan-ok */
+uint32_t bbxMagicReadVar;			/* S4 word0 seen at bbxRecoverCursor entry */
+uint32_t bbxEraseSrVar;				/* FLASH->SR right after erase poll */
+uint32_t bbxEraseW0Var;				/* S4 word0 read back after erase */
+uint32_t bbxProgSrVar;				/* FLASH->SR after magic program */
+uint32_t bbxProgW0Var;				/* S4 word0 read back after program */
+uint32_t bbxScanEndVar;				/* first erased word index found in scan */
 
 /* ---- protocol ---- */
 #define BBX_SUB_INFO   0x01u
@@ -95,6 +109,7 @@ static bool bbxProgramWord(uint32_t addr, uint32_t word)
 	__disable_irq();
 
 	FLASH_Unlock();
+	FLASH_DataCacheCmd(DISABLE);	/* cache off during program (see erase) */
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
 			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
 	FLASH->CR &= ~((uint32_t)0x3 << 8);	/* PSIZE mask */
@@ -111,6 +126,7 @@ static bool bbxProgramWord(uint32_t addr, uint32_t word)
 	     (*(volatile uint32_t *)addr == word);
 
 	FLASH->CR &= ~FLASH_CR_PG;
+	FLASH_DataCacheCmd(ENABLE);
 	FLASH_Lock();
 	if (primask == 0) {
 		__enable_irq();
@@ -134,7 +150,11 @@ static bool bbxEraseSector(void)
 	primask = __get_PRIMASK();
 	__disable_irq();
 
+	bbxEraseSrVar = 0xDEADBEEFu;			/* sentinel: erase entered */
 	FLASH_Unlock();
+	FLASH_DataCacheCmd(DISABLE);			/* ST: cache MUST be off during
+	 * erase/program, else the post-erase read-back hits a stale D-cache line
+	 * and never sees 0xFFFFFFFF (same hardening as kv_erase_page()). */
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
 			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
 	FLASH_EraseSector(FLASH_Sector_4, VoltageRange_3);
@@ -145,7 +165,10 @@ static bool bbxEraseSector(void)
 	}
 	ok = ((FLASH->SR & FLASH_FLAG_BSY) == 0) &&
 	     ((*(volatile uint32_t *)FM_BLACKBOX_BASE) == 0xFFFFFFFFu);
+	bbxEraseSrVar = FLASH->SR;			/* snapshot before next boot clears it */
+	bbxEraseW0Var = *(volatile uint32_t *)FM_BLACKBOX_BASE;
 
+	FLASH_DataCacheCmd(ENABLE);
 	FLASH_Lock();
 	if (primask == 0) {
 		__enable_irq();
@@ -169,37 +192,44 @@ static void bbxRecoverCursor(void)
 	uint32_t w;
 	const uint32_t end = FM_BLACKBOX_SIZE / 4u;
 
-	if (*(volatile uint32_t *)FM_BLACKBOX_BASE != BBX_MAGIC) {
-		/* stale bytes (pre-blackbox firmware) or blank sector: format */
-		if (!bbxEraseSector()) {
-			return;	/* leave bbxBootedVar=0, logging disabled */
-		}
-		if (!bbxProgramWord(FM_BLACKBOX_BASE, BBX_MAGIC)) {
-			return;
-		}
-		s_writeWord = BBX_HDR_WORDS;
-		s_seq = 0u;
-	} else {
-		for (w = BBX_HDR_WORDS; w < end; w++) {
-			if (*(volatile uint32_t *)(FM_BLACKBOX_BASE + w * 4u) == 0xFFFFFFFFu) {
-				break;
-			}
-		}
-		if (w >= end) {
-			s_writeWord = end;		/* sector full */
-			bbxFullVar = 1;
-		} else {
-			uint32_t off = w - BBX_HDR_WORDS;	/* round up to frame boundary */
-			s_writeWord = ((off + BBX_FRAME_WORDS - 1u) / BBX_FRAME_WORDS) *
-				BBX_FRAME_WORDS + BBX_HDR_WORDS;
-		}
-		if (s_writeWord >= BBX_HDR_WORDS + BBX_FRAME_WORDS) {
-			s_seq = *(volatile uint32_t *)(FM_BLACKBOX_BASE +
-				(s_writeWord - BBX_FRAME_WORDS) * 4u);
-		} else {
-			s_seq = 0u;
+	bbxMagicReadVar = *(volatile uint32_t *)FM_BLACKBOX_BASE;
+	bbxStageVar = 1u;
+
+	if (bbxMagicReadVar != BBX_MAGIC) {
+		/* Blank sector or stale bytes (pre-blackbox firmware). We DO NOT
+		 * erase here: a 64K sector erase stalls the whole flash bank for
+		 * ~2s and its current spike, on top of the boot-time inrush, trips
+		 * BOR and resets the board mid-erase (observed: tick stays 0, S4
+		 * never takes the magic, POR/SFT flags set). Formatting is a
+		 * ground-command-only action that runs in task context with the
+		 * supply settled (same context OTA's 128K erase uses). Flag it and
+		 * leave logging disabled until the operator sends BBX_SUB_ERASE. */
+		bbxNeedsFormatVar = 1u;
+		bbxBootedVar = 0u;
+		return;
+	}
+
+	for (w = BBX_HDR_WORDS; w < end; w++) {
+		if (*(volatile uint32_t *)(FM_BLACKBOX_BASE + w * 4u) == 0xFFFFFFFFu) {
+			break;
 		}
 	}
+	bbxScanEndVar = w;
+	if (w >= end) {
+		s_writeWord = end;		/* sector full */
+		bbxFullVar = 1;
+	} else {
+		uint32_t off = w - BBX_HDR_WORDS;	/* round up to frame boundary */
+		s_writeWord = ((off + BBX_FRAME_WORDS - 1u) / BBX_FRAME_WORDS) *
+			BBX_FRAME_WORDS + BBX_HDR_WORDS;
+	}
+	if (s_writeWord >= BBX_HDR_WORDS + BBX_FRAME_WORDS) {
+		s_seq = *(volatile uint32_t *)(FM_BLACKBOX_BASE +
+			(s_writeWord - BBX_FRAME_WORDS) * 4u);
+	} else {
+		s_seq = 0u;
+	}
+	bbxStageVar = 4u;
 	bbxWriteWordVar = s_writeWord;
 	bbxSeqVar = s_seq;
 	bbxBootedVar = 1;
@@ -430,8 +460,12 @@ void blackboxHandlePacket(const atkp_t *p)
 		}
 		if (bbxEraseSector() && bbxProgramWord(FM_BLACKBOX_BASE, BBX_MAGIC)) {
 			s_writeWord = BBX_HDR_WORDS;
+			s_seq = 0u;
 			bbxWriteWordVar = s_writeWord;
+			bbxSeqVar = s_seq;
 			bbxFullVar = 0u;
+			bbxNeedsFormatVar = 0u;
+			bbxBootedVar = 1u;
 			s_dropped = 0u;
 			d[0] = UP_BBX_ACK; d[1] = 1u;
 		} else {
