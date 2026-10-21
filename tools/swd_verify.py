@@ -3,12 +3,12 @@
 """
 swd_verify.py - post-flash health check over SWD (no serial needed).
 
-Reads (addresses from OBJ/Firmware_F411.map, v1.0.22):
+Reads (addresses from OBJ/Firmware_F411.map, v1.0.25):
   xTickCount 0x200004fc  uxCurrentNumberOfTasks 0x200004f8
-  isMPU 0x200008A4  Mag 0x200008A5  Baro 0x200008A6
+  isMPU 0x200008bc  Mag 0x200008bd  Baro 0x200008be
   xFreeBytesRemaining 0x20000550 (heap_4 counter, expect 0: heap never init)
   failsafe level/condBits/motorCut 0x200007b4/6/8
-  blackbox writeWord/seq/dropped/full/booted 0x200007dc..e9
+  blackbox writeWord/seq/dropped/full/booted/needsFormat 0x200007dc..ea
 Fault registers: SCB->HFSR 0xE000ED2C, CFSR 0xE000ED28, ICSR 0xE000ED04
 
 Usage: python tools/swd_verify.py
@@ -22,9 +22,9 @@ ADDRS = {
     "uxCurrentNumberOfTasks": 0x200004F8,
     "xTickCount":             0x200004FC,
     "xFreeBytesRemaining":    0x20000550,
-    "isMPUPresent":           0x200008A4,
-    "isMagPresent":           0x200008A5,
-    "isBaroPresent":          0x200008A6,
+    "isMPUPresent":           0x200008BC,
+    "isMagPresent":           0x200008BD,
+    "isBaroPresent":          0x200008BE,
     "failsafeLevelVar":       0x200007B4,
     "failsafeCondBitsVar":    0x200007B6,
     "failsafeMotorCutVar":    0x200007B8,
@@ -33,6 +33,7 @@ ADDRS = {
     "bbxDroppedVar":          0x200007E4,
     "bbxFullVar":             0x200007E8,
     "bbxBootedVar":           0x200007E9,
+    "bbxNeedsFormatVar":      0x200007EA,
 }
 
 def main():
@@ -59,6 +60,7 @@ def main():
         bbx_drop = t.read32(ADDRS["bbxDroppedVar"])
         bbx_full = t.read8(ADDRS["bbxFullVar"])
         bbx_boot = t.read8(ADDRS["bbxBootedVar"])
+        bbx_needfmt = t.read8(ADDRS["bbxNeedsFormatVar"])
 
         icsr = t.read32(0xE000ED04)
         cfsr = t.read32(0xE000ED28)
@@ -71,7 +73,7 @@ def main():
     dt = tick2 - tick1
     ok = True
     def check(name, cond, detail):
-        global ok
+        nonlocal ok
         mark = "PASS" if cond else "FAIL"
         if not cond:
             ok = False
@@ -89,12 +91,29 @@ def main():
           f"MPU={flags & 0xFF} Mag={(flags>>8)&0xFF} Baro={(flags>>16)&0xFF}")
     check("heap counter (expect 0, never init)", freeheap in (0, 30720),
           f"xFreeBytesRemaining={freeheap}")
-    check("failsafe idle state", fs_level == 0 and fs_cut == 0,
-          f"level={fs_level} cond=0x{fs_cond:04x} cut={fs_cut}")
-    check("blackbox booted", bbx_boot == 1,
-          f"booted={bbx_boot} full={bbx_full}")
-    check("blackbox cursor sane", 1 <= bbx_word <= 16384,
-          f"writeWord={bbx_word}/16384 seq={bbx_seq} dropped={bbx_drop}")
+    # Failsafe graded state machine: level must be consistent with cond bits.
+    # On the bench (no radio link) LINK_LOST is expected -> LAND is CORRECT,
+    # not a fault. Verify the arbitration, not a hardcoded idle level.
+    fs_expected = 0  # FS_NORMAL
+    if fs_cond & 0x0010:                       # EMER_STOP
+        fs_expected = 3  # FS_KILL
+    elif fs_cond & 0x0001 or fs_cond & 0x0002:   # LINK_LOST | LOW_BAT
+        fs_expected = 2  # FS_LAND
+    elif fs_cond & 0x0004 or fs_cond & 0x0008:  # MAG_LOST | FLOW_LOST
+        fs_expected = 1  # FS_DEGRADED
+    check("failsafe level matches cond", fs_level == fs_expected,
+          f"level={fs_level} expected={fs_expected} cond=0x{fs_cond:04x} cut={fs_cut}")
+    # Blackbox: either formatted (booted=1) or blank-awaiting-ground-format
+    # (booted=0, needsFormat=1). Both are healthy boot outcomes; the boot path
+    # no longer erases S4 (that caused a BOR reset loop).
+    check("blackbox boot state",
+          (bbx_boot == 1 and not bbx_needfmt) or (bbx_boot == 0 and bbx_needfmt),
+          f"booted={bbx_boot} needsFormat={bbx_needfmt} full={bbx_full}")
+    if bbx_boot == 1:
+        check("blackbox cursor sane", 1 <= bbx_word <= 16384,
+              f"writeWord={bbx_word}/16384 seq={bbx_seq} dropped={bbx_drop}")
+    else:
+        print("[INFO] blackbox: S4 blank, send ground ERASE to format")
 
     print("\nRESULT:", "ALL PASS" if ok else "HAS FAILURES")
     return 0 if ok else 1
