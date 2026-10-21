@@ -8,6 +8,7 @@ Frame (24B, little-endian words), matches FLIGHT/src/blackbox.c:
   w0 seq u32 | w1 uptimeMs u32 | w2 roll|pitch (s16 deg x100)
   w3 yaw (s16) | vbat (u16 V x100) | w4 m1..m4 (u8 PWM 0..255)
   w5 fsCondBits u16 | fsLevel u8 | event u8 (1 arm 2 disarm 4 DEG 8 LAND 16 KILL)
+  event bit 32 = slow-rate frame (10Hz cruise); otherwise full rate (100Hz).
 
 Usage:
   python tools/blackbox_dump.py COM7 info
@@ -25,6 +26,7 @@ SUB_INFO, SUB_READ, SUB_ERASE = 0x01, 0x02, 0x03
 UP_INFO, UP_DATA, UP_ACK = 0x01, 0x02, 0x03
 
 EV_NAMES = {1: "ARM", 2: "DISARM", 4: "DEGRADED", 8: "LAND", 16: "KILL"}
+EV_SLOW = 32  # cruise frame recorded at 10Hz (absent = full 100Hz)
 
 
 def frame(sub, idx=0):
@@ -117,8 +119,8 @@ def main():
             return 1
         frames, seq, full, dropped, booted = info
         print(f"frames={frames}  seq={seq}  full={full}  dropped={dropped}  booted={booted}")
-        print(f"~{frames/100.0:.1f}s of flight logged @100Hz "
-              f"(cap 2730 = 27.3s)")
+        print(f"cap 2730 frames = 10s@100Hz + ~173s@10Hz cruise (~3min); "
+              f"dump for exact per-frame rates")
         return 0
 
     if mode == "erase":
@@ -147,14 +149,17 @@ def main():
                 continue
             rows.append(decode(pl))
         with open(out, "w", encoding="utf-8") as f:
-            f.write("seq,ms,roll,pitch,yaw,vbat,m1,m2,m3,m4,fsCond,fsLevel,event\n")
+            f.write("seq,ms,rate,roll,pitch,yaw,vbat,m1,m2,m3,m4,fsCond,fsLevel,event\n")
             for r in rows:
                 ev = "|".join(EV_NAMES[b] for b in EV_NAMES if r["ev"] & b)
-                f.write(f"{r['seq']},{r['ms']},{r['roll']:.2f},{r['pitch']:.2f},"
+                rate = 10 if (r["ev"] & EV_SLOW) else 100
+                f.write(f"{r['seq']},{r['ms']},{rate},{r['roll']:.2f},{r['pitch']:.2f},"
                         f"{r['yaw']:.2f},{r['vbat']:.2f},{r['m1']},{r['m2']},"
                         f"{r['m3']},{r['m4']},{r['fsCond']},{r['fsLevel']},{ev}\n")
         print(f"[OK] {len(rows)} frames -> {out}")
-        evs = [r for r in rows if r["ev"]]
+        nslow = sum(1 for r in rows if r["ev"] & EV_SLOW)
+        print(f"     {len(rows)-nslow} full-rate(100Hz) + {nslow} cruise(10Hz)")
+        evs = [r for r in rows if r["ev"] & ~EV_SLOW]
         for r in evs[:20]:
             print(f"  seq={r['seq']} ms={r['ms']} ev="
                   f"{'|'.join(EV_NAMES[b] for b in EV_NAMES if r['ev'] & b)}"

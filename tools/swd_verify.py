@@ -3,9 +3,9 @@
 """
 swd_verify.py - post-flash health check over SWD (no serial needed).
 
-Reads (addresses from OBJ/Firmware_F411.map, v1.0.21):
+Reads (addresses from OBJ/Firmware_F411.map, v1.0.22):
   xTickCount 0x200004fc  uxCurrentNumberOfTasks 0x200004f8
-  isMPU 0x20000898  Mag 0x20000899  Baro 0x2000089a
+  isMPU 0x200008A4  Mag 0x200008A5  Baro 0x200008A6
   xFreeBytesRemaining 0x20000550 (heap_4 counter, expect 0: heap never init)
   failsafe level/condBits/motorCut 0x200007b4/6/8
   blackbox writeWord/seq/dropped/full/booted 0x200007dc..e9
@@ -22,9 +22,9 @@ ADDRS = {
     "uxCurrentNumberOfTasks": 0x200004F8,
     "xTickCount":             0x200004FC,
     "xFreeBytesRemaining":    0x20000550,
-    "isMPUPresent":           0x20000898,
-    "isMagPresent":           0x20000899,
-    "isBaroPresent":          0x2000089A,
+    "isMPUPresent":           0x200008A4,
+    "isMagPresent":           0x200008A5,
+    "isBaroPresent":          0x200008A6,
     "failsafeLevelVar":       0x200007B4,
     "failsafeCondBitsVar":    0x200007B6,
     "failsafeMotorCutVar":    0x200007B8,

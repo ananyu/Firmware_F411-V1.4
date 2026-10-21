@@ -44,6 +44,17 @@
 #define BBX_EV_DEGRADED  0x04u
 #define BBX_EV_LAND      0x08u
 #define BBX_EV_KILL      0x10u
+#define BBX_EV_SLOW      0x20u	/* frame recorded at cruise rate (10Hz) */
+
+/* ---- variable-rate policy (covers ~3min inside the 64K sector) ----
+ * 100Hz: first BBX_ARM_FULL_TICKS after arm (take-off is the high-risk
+ * window) + BBX_BURST_TICKS after any failsafe level change.
+ * 10Hz:  cruise in between (one frame per BBX_SLOW_DIV sample ticks).
+ * Budget: 1000 full + 1730 slow = 2730 frames = 10s + 173s ~= 3min.
+ * Bursts steal from the cruise budget, which is the right trade. */
+#define BBX_ARM_FULL_TICKS  1000u
+#define BBX_BURST_TICKS      500u
+#define BBX_SLOW_DIV          10u
 
 /* ---- RAM ring ---- */
 #define BBX_RING_LEN     128u		/* power of two; 128 x 24B = 3072B RAM */
@@ -205,6 +216,11 @@ static uint8_t s_prevLevel;
 static bool s_prevArmed;
 static bool s_finalPending;
 
+/* variable-rate state (see BBX_ARM_FULL_TICKS policy above) */
+static uint32_t s_armSamples;		/* 100Hz sample ticks since arm */
+static uint32_t s_burstUntil;		/* s_armSamples value until which full rate */
+static uint8_t  s_slowCnt;		/* 0..BBX_SLOW_DIV-1 decimation phase */
+
 static void bbxPush(const uint32_t *frame)
 {
 	uint16_t next = (uint16_t)((s_wr + 1u) & (BBX_RING_LEN - 1u));
@@ -228,6 +244,9 @@ void blackboxSample(void)
 	lvl = failsafeLevel();
 	if (armed && !s_prevArmed) {
 		ev |= BBX_EV_ARM;
+		s_armSamples = 0u;		/* new sortie: restart the full-rate window */
+		s_burstUntil = 0u;
+		s_slowCnt = 0u;
 	}
 	if (!armed && s_prevArmed) {
 		ev |= BBX_EV_DISARM;
@@ -238,11 +257,31 @@ void blackboxSample(void)
 		else if (lvl == FS_LAND) ev |= BBX_EV_LAND;
 		else if (lvl == FS_KILL) ev |= BBX_EV_KILL;
 		s_prevLevel = lvl;
+		s_burstUntil = s_armSamples + BBX_BURST_TICKS;	/* full-rate burst */
 	}
 	s_prevArmed = armed;
 
 	if (!armed && !s_finalPending) {
 		return;		/* ground idle: no logging, no flash wear */
+	}
+
+	if (armed) {
+		/* variable-rate gate: full rate in the arm window / event bursts,
+		 * 1-in-10 decimation in cruise. Event frames are never decimated
+		 * (they carry the markers used for offline navigation). */
+		bool full = (s_armSamples < BBX_ARM_FULL_TICKS) ||
+		            (s_armSamples < s_burstUntil);
+		s_armSamples++;
+		if (!full) {
+			if (ev != 0u) {
+				;			/* event frame: keep, full-rate semantics */
+			} else if (++s_slowCnt >= BBX_SLOW_DIV) {
+				s_slowCnt = 0u;
+				ev |= BBX_EV_SLOW;	/* decimated cruise frame */
+			} else {
+				return;		/* decimated away */
+			}
+		}
 	}
 
 	getAttitudeData(&att);

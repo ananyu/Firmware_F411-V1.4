@@ -26,9 +26,13 @@
  *   w3 yaw s16 (deg x100)     | vbat u16 (V x100)
  *   w4 m1 u8 | m2 u8 | m3 u8 | m4 u8   (PWM ratio 0..255)
  *   w5 fsCondBits u16 | fsLevel u8 | event u8
- * Event bits: 1 arm, 2 disarm, 4 fs->DEGRADED, 8 fs->LAND, 16 fs->KILL.
+ * Event bits: 1 arm, 2 disarm, 4 fs->DEGRADED, 8 fs->LAND, 16 fs->KILL,
+ * 32 slow-rate frame (cruise decimation; absent bit = full 100Hz rate).
  *
- * Capacity: (65536-4)/24 = 2730 frames = 27.3s at 100Hz while armed.
+ * Variable rate: 100Hz for the first 10s after arm and for 5s bursts on
+ * every failsafe level change; 10Hz decimated cruise in between (event
+ * frames are never decimated). Capacity (65536-4)/24 = 2730 frames covers
+ * ~10s full + ~173s cruise ~= 3 min of flight instead of a flat 27.3s.
  *
  * Export: DOWN_BLACKBOX(0x62) sub INFO/READ/ERASE, replies UP_BLACKBOX
  * frames (the remoter forwards unknown msgIDs transparently both ways,
