@@ -32,11 +32,11 @@ void vApplicationMallocFailedHook( void )
 	while(1);
 }
 
-#if (configCHECK_FOR_STACK_OVERFLOW == 1)
-void vApplicationStackOverflowHook(xTaskHandle *pxTask, signed portCHAR *pcTaskName)
+#if (configCHECK_FOR_STACK_OVERFLOW > 0)
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
 	portDISABLE_INTERRUPTS();
-	printf("\nStack overflow!\n");
+	printf("\nStack overflow in task: %s\n", pcTaskName);
 	ledSet(ERR_LED1, 1);/*´íÎó¼ì²â*/
 	ledSet(ERR_LED2, 1);
 	while(1);

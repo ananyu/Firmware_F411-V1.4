@@ -113,7 +113,7 @@
 #define configUSE_MUTEXES						1                       //为1时使用互斥信号量
 #define configQUEUE_REGISTRY_SIZE				10                      //不为0时表示启用队列记录，具体的值是可以
                                                                         //记录的队列和信号量最大数目。
-#define configCHECK_FOR_STACK_OVERFLOW			0                       //大于0时启用堆栈溢出检测功能，如果使用此功能
+#define configCHECK_FOR_STACK_OVERFLOW			2                       //大于0时启用堆栈溢出检测功能，如果使用此功能
 																		//用户必须提供一个栈溢出钩子函数，如果使用的话
 																		//此值可以为1或者2，因为有两种栈溢出检测方法。
 #define configUSE_RECURSIVE_MUTEXES				1                       //为1时使用递归互斥信号量
@@ -137,9 +137,15 @@
 /***************************************************************************************************************/
 /*                                FreeRTOS与运行时间和任务状态收集有关的配置选项                               */
 /***************************************************************************************************************/
-#define configGENERATE_RUN_TIME_STATS	        0                       //为1时启用运行时间统计功能
+#define configGENERATE_RUN_TIME_STATS	        1                       //为1时启用运行时间统计功能
 #define configUSE_TRACE_FACILITY				1                       //为1启用可视化跟踪调试
-#define configUSE_STATS_FORMATTING_FUNCTIONS	1                       //与宏configUSE_TRACE_FACILITY同时为1时会编译下面3个函数
+#define configUSE_STATS_FORMATTING_FUNCTIONS	1
+/* ---- run-time stats clock source: DWT cycle counter (CPU clock, 96MHz).
+ * Enabled once from main before the scheduler starts (fsStatsInit).
+ * configCPU_CLOCK_HZ must equal the core clock for % math to be correct. ---- */
+#define configRUN_TIME_COUNTER_TYPE              unsigned long
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()  fsStatsInit()
+#define portGET_RUN_TIME_COUNTER_VALUE()          fsStatsCycles()                       //与宏configUSE_TRACE_FACILITY同时为1时会编译下面3个函数
                                                                         //prvWriteNameToBuffer(),vTaskList(),
 /***************************************************************************************************************/
 /*                                FreeRTOS与协程有关的配置选项                                                 */

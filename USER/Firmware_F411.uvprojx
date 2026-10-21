@@ -1086,6 +1086,11 @@
               <FilePath>..\COMMON\src\freeRTOSdebug.c</FilePath>
             </File>
             <File>
+              <FileName>fs_stats.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\COMMON\src\fs_stats.c</FilePath>
+            </File>
+            <File>
               <FileName>filter.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\COMMON\src\filter.c</FilePath>

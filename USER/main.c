@@ -1,6 +1,7 @@
 #include "system.h"	/*头文件集合*/
 #include "bootutil/bootutil_public.h"  /*MCUBoot公共API：确认当前镜像，防止回滚*/
 #include "freertos_static.h"	/*静态内存分配辅助宏*/
+#include "fs_stats.h"	/*运行时间统计+栈高水位上报*/
 #include "ota.h"
 #include "ota_uart_bridge.h"
 
@@ -79,6 +80,8 @@ void startTask(void *arg)
     xTaskCreateStatic(otaTask, "OTA", 300, NULL, 4, stk_ota, &tcb_ota);						/*创建OTA升级处理任务*/
     xTaskCreateStatic(otaUartBridgeTask, "OTA_UART", 200, NULL, 3, stk_otaUart, &tcb_otaUart);	/*创建OTA串口桥任务*/
     otaInit();
+
+    fsStatsStart();																				/*创建运行时间/栈水位统计任务*/
 
     printf("Free heap: %d bytes\n", xPortGetFreeHeapSize());			/*打印剩余堆栈大小*/
 
