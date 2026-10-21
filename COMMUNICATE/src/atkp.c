@@ -22,6 +22,7 @@
 #include "optical_flow.h"
 #include "state_estimator.h"
 #include "ota.h"
+#include "blackbox.h"
 
 /*FreeRTOS相关头文件*/
 #include "FreeRTOS.h"
@@ -636,6 +637,10 @@ static void atkpReceiveAnl(atkp_t *anlPacket)
 	else if(anlPacket->msgID == DOWN_OTA)/*OTA升级*/
 	{
 		otaHandlePacket(anlPacket);
+	}
+	else if(anlPacket->msgID == DOWN_BLACKBOX)/*blackbox flight log*/
+	{
+		blackboxHandlePacket(anlPacket);
 	}
 } 
 

@@ -5,6 +5,7 @@
 #include "commander.h"
 #include "anomal_detec.h"
 #include "failsafe.h"
+#include "blackbox.h"
 #include "state_control.h"
 #include "state_estimator.h"
 #include "power_control.h"
@@ -209,6 +210,12 @@ void stabilizerTask(void* param)
 
 		/*分级失效保护仲裁（1kHz，只读各模块状态+滞回计数）*/
 		failsafeUpdate();
+
+		/*blackbox: 100Hz flight log sample (armed only, RAM ring push, never blocks)*/
+		if (RATE_DO_EXECUTE(RATE_100_HZ, tick))
+		{
+			blackboxSample();
+		}
 
 		/*PID控制*/	
 		//根据目标和当前状态算控制量

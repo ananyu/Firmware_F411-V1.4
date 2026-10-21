@@ -2,6 +2,7 @@
 #include "bootutil/bootutil_public.h"  /*MCUBoot公共API：确认当前镜像，防止回滚*/
 #include "freertos_static.h"	/*静态内存分配辅助宏*/
 #include "fs_stats.h"	/*运行时间统计+栈高水位上报*/
+#include "blackbox.h"	/*S4 flight-log blackbox*/
 #include "ota.h"
 #include "ota_uart_bridge.h"
 
@@ -51,6 +52,7 @@ void startTask(void *arg)
     DEFINE_STATIC_TASK(expMgt, 150);
     DEFINE_STATIC_TASK(ota, 300);
     DEFINE_STATIC_TASK(otaUart, 200);
+    DEFINE_STATIC_TASK(bbx, 150);
 
     taskENTER_CRITICAL();
     /*进入临界区，因为创建任务的时候并不运行，
@@ -58,6 +60,8 @@ void startTask(void *arg)
     所以为了防止被高层级的抢占，需要进入临界区*/
 
     boot_set_confirmed();												/*确认当前slot0镜像，防止下次上电被回滚(MCUBoot)*/
+
+    blackboxInit();														/*S4黑匣子：校验/格式化+恢复写游标（可能擦除64K扇区约2s，IWDG已放宽）*/
 
     xTaskCreateStatic(radiolinkTask, "RADIOLINK", 150, NULL, 5, stk_radio, &tcb_radio);		/*创建无线连接任务*/
 
@@ -80,6 +84,8 @@ void startTask(void *arg)
     xTaskCreateStatic(otaTask, "OTA", 300, NULL, 4, stk_ota, &tcb_ota);						/*创建OTA升级处理任务*/
     xTaskCreateStatic(otaUartBridgeTask, "OTA_UART", 200, NULL, 3, stk_otaUart, &tcb_otaUart);	/*创建OTA串口桥任务*/
     otaInit();
+
+    xTaskCreateStatic(blackboxTask, "BLACKBOX", 150, NULL, 1, stk_bbx, &tcb_bbx);				/*创建黑匣子写任务（1ms摊薄编程1字）*/
 
     fsStatsStart();																				/*创建运行时间/栈水位统计任务*/
 

@@ -3,10 +3,12 @@
 """
 swd_verify.py - post-flash health check over SWD (no serial needed).
 
-Reads (addresses from OBJ/Firmware_F411.map, v1.0.18):
+Reads (addresses from OBJ/Firmware_F411.map, v1.0.21):
   xTickCount 0x200004fc  uxCurrentNumberOfTasks 0x200004f8
-  isMPU 0x20000854  isMag 0x20000855  isBaro 0x20000856
-  xFreeBytesRemaining 0x20000548 (heap_4 counter, expect 0: heap never init)
+  isMPU 0x20000898  Mag 0x20000899  Baro 0x2000089a
+  xFreeBytesRemaining 0x20000550 (heap_4 counter, expect 0: heap never init)
+  failsafe level/condBits/motorCut 0x200007b4/6/8
+  blackbox writeWord/seq/dropped/full/booted 0x200007dc..e9
 Fault registers: SCB->HFSR 0xE000ED2C, CFSR 0xE000ED28, ICSR 0xE000ED04
 
 Usage: python tools/swd_verify.py
@@ -19,10 +21,18 @@ from pyocd.core.helpers import ConnectHelper
 ADDRS = {
     "uxCurrentNumberOfTasks": 0x200004F8,
     "xTickCount":             0x200004FC,
-    "xFreeBytesRemaining":    0x20000548,
-    "isMPUPresent":           0x20000854,
-    "isMagPresent":           0x20000855,
-    "isBaroPresent":          0x20000856,
+    "xFreeBytesRemaining":    0x20000550,
+    "isMPUPresent":           0x20000898,
+    "isMagPresent":           0x20000899,
+    "isBaroPresent":          0x2000089A,
+    "failsafeLevelVar":       0x200007B4,
+    "failsafeCondBitsVar":    0x200007B6,
+    "failsafeMotorCutVar":    0x200007B8,
+    "bbxWriteWordVar":        0x200007DC,
+    "bbxSeqVar":              0x200007E0,
+    "bbxDroppedVar":          0x200007E4,
+    "bbxFullVar":             0x200007E8,
+    "bbxBootedVar":           0x200007E9,
 }
 
 def main():
@@ -39,6 +49,16 @@ def main():
         flags = t.read8(ADDRS["isMPUPresent"]) | \
                 (t.read8(ADDRS["isMagPresent"]) << 8) | \
                 (t.read8(ADDRS["isBaroPresent"]) << 16)
+
+        fs_level = t.read8(ADDRS["failsafeLevelVar"])
+        fs_cond = t.read16(ADDRS["failsafeCondBitsVar"])
+        fs_cut = t.read8(ADDRS["failsafeMotorCutVar"])
+
+        bbx_word = t.read32(ADDRS["bbxWriteWordVar"])
+        bbx_seq = t.read32(ADDRS["bbxSeqVar"])
+        bbx_drop = t.read32(ADDRS["bbxDroppedVar"])
+        bbx_full = t.read8(ADDRS["bbxFullVar"])
+        bbx_boot = t.read8(ADDRS["bbxBootedVar"])
 
         icsr = t.read32(0xE000ED04)
         cfsr = t.read32(0xE000ED28)
@@ -69,6 +89,12 @@ def main():
           f"MPU={flags & 0xFF} Mag={(flags>>8)&0xFF} Baro={(flags>>16)&0xFF}")
     check("heap counter (expect 0, never init)", freeheap in (0, 30720),
           f"xFreeBytesRemaining={freeheap}")
+    check("failsafe idle state", fs_level == 0 and fs_cut == 0,
+          f"level={fs_level} cond=0x{fs_cond:04x} cut={fs_cut}")
+    check("blackbox booted", bbx_boot == 1,
+          f"booted={bbx_boot} full={bbx_full}")
+    check("blackbox cursor sane", 1 <= bbx_word <= 16384,
+          f"writeWord={bbx_word}/16384 seq={bbx_seq} dropped={bbx_drop}")
 
     print("\nRESULT:", "ALL PASS" if ok else "HAS FAILURES")
     return 0 if ok else 1

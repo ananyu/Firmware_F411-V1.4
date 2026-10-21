@@ -65,6 +65,7 @@ typedef enum
 	UP_PRINTF		= 0x51,
 	
 	UP_OTA			= 0x61,
+	UP_BLACKBOX		= 0x62,
 	
 	UP_USER_DATA1	= 0xF1,
 	UP_USER_DATA2	= 0xF2,
@@ -115,6 +116,7 @@ typedef enum
 	
 	DOWN_REMOTER	= 0x50,
 	DOWN_OTA		= 0x60,
+	DOWN_BLACKBOX	= 0x62,
 }downmsgID_e;
 
 
