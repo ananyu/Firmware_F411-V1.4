@@ -36,7 +36,7 @@
 #define BBX_HDR_WORDS    1u		/* magic word at sector offset 0 */
 #define BBX_FRAME_WORDS  6u		/* 24 bytes per frame */
 #define BBX_FRAME_BYTES  (BBX_FRAME_WORDS * 4u)
-#define BBX_MAX_FRAMES   ((FM_BLACKBOX_SIZE / BBX_FRAME_BYTES) - 1u) /* 2730 */
+#define BBX_MAX_FRAMES   ((FM_BLACKBOX_SIZE - BBX_HDR_WORDS * 4u) / BBX_FRAME_BYTES) /* 2730 */
 
 /* event bits (frame w5) */
 #define BBX_EV_ARM       0x01u
