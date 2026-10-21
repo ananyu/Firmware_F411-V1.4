@@ -93,5 +93,10 @@ bool getCommanderKeyland(void);
 
 void setCommanderFlightmode(bool set);
 void setCommanderEmerStop(bool set);
+bool getCommanderEmerStop(void);
+
+/* Link watchdog state: true when both radio and wifi caches exceeded the
+ * shutdown timeout (see ctrlDataUpdate). Consumed by the failsafe arbiter. */
+bool commanderIsRCLocked(void);
 
 #endif /* __COMMANDER_H */

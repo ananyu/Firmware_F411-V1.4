@@ -1,5 +1,6 @@
 #include "power_control.h"
 #include "motors.h"
+#include "failsafe.h"
 
 /********************************************************************************	 
  * 本程序只供学习使用，未经作者许可，不得用于其它任何用途
@@ -66,6 +67,13 @@ void powerControl(control_t *control)	/*功率输出控制*/
 	if (motorSetEnable)
 	{
 		motorPWM = motorPWMSet;
+	}
+	if (failsafeMotorCut())	/*KILL级失效保护：紧急停机，强制四路输出清零*/
+	{
+		motorPWM.m1 = 0;
+		motorPWM.m2 = 0;
+		motorPWM.m3 = 0;
+		motorPWM.m4 = 0;
 	}
 	motorsSetRatio(MOTOR_M1, motorPWM.m1);	/*控制电机输出百分比*/
 	motorsSetRatio(MOTOR_M2, motorPWM.m2);

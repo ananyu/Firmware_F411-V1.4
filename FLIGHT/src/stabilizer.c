@@ -4,6 +4,7 @@
 #include "sensfusion6.h"
 #include "commander.h"
 #include "anomal_detec.h"
+#include "failsafe.h"
 #include "state_control.h"
 #include "state_estimator.h"
 #include "power_control.h"
@@ -204,8 +205,11 @@ void stabilizerTask(void* param)
 		
 		/*异常检测*/
 		//检测是否自由落体，然后快速调整
-		anomalDetec(&sensorData, &state, &control);			
-		
+		anomalDetec(&sensorData, &state, &control);
+
+		/*分级失效保护仲裁（1kHz，只读各模块状态+滞回计数）*/
+		failsafeUpdate();
+
 		/*PID控制*/	
 		//根据目标和当前状态算控制量
 		stateControl(&control, &sensorData, &state, &setpoint, tick);

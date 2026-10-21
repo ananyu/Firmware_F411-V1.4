@@ -1011,6 +1011,11 @@
               <FilePath>..\FLIGHT\src\anomal_detec.c</FilePath>
             </File>
             <File>
+              <FileName>failsafe.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FLIGHT\src\failsafe.c</FilePath>
+            </File>
+            <File>
               <FileName>attitude_pid.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FLIGHT\src\attitude_pid.c</FilePath>

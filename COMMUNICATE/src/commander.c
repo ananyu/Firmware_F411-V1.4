@@ -452,4 +452,14 @@ void setCommanderEmerStop(bool set)
 	commander.emerStop = set;
 }
 
+bool getCommanderEmerStop(void)
+{
+	return commander.emerStop;
+}
+
+bool commanderIsRCLocked(void)
+{
+	return isRCLocked;
+}
+
 
