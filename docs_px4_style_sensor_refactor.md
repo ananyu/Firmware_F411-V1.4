@@ -92,8 +92,8 @@ This convenience hides several architectural issues:
 ## 4. What PX4 Does Differently
 ## 4. PX4 的思路有什么不同
 
-After checking the local PX4 tree at `E:\study_files_e\stm32\PX4\PX4-Autopilot-main`, the key ideas are:
-我对本地 `E:\study_files_e\stm32\PX4\PX4-Autopilot-main` 做了对应检查，核心思路如下：
+After checking the local PX4 tree at `PX4-Autopilot-main`, the key ideas are:
+我对本地 `PX4-Autopilot-main` 做了对应检查，核心思路如下：
 
 ### 4.1 IMU is FIFO-centric
 ### 4.1 IMU 路径以 FIFO 为核心
