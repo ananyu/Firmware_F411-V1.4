@@ -36,3 +36,8 @@ USER/build.log
 # OS junk
 Thumbs.db
 Desktop.ini
+
+# Local-only, not published
+开发总结_面试学习文档.md
+docs/superpowers/
+USER/build_bbx.log
